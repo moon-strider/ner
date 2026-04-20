@@ -30,6 +30,7 @@ from cerebras.cloud.sdk import (
 )
 from pydantic import ValidationError
 
+from ner_service.config_store import PreparedNERConfig
 from ner_service.providers.base import (
     ProviderAuthError,
     ProviderBadRequestError,
@@ -39,8 +40,7 @@ from ner_service.providers.base import (
     ProviderRateLimitError,
     ProviderUpstreamError,
 )
-from ner_service.schema_builder import build_response_format, build_system_prompt
-from ner_service.schemas import EntityLabel, RawEntities, RawEntity
+from ner_service.schemas import RawEntities, RawEntity
 
 
 class CerebrasProvider:
@@ -59,28 +59,24 @@ class CerebrasProvider:
     async def extract(
         self,
         text: str,
-        labels: list[EntityLabel],
         *,
-        require_offsets: bool,
-        retries: int,
-        max_tokens: int,
-        reasoning_effort: str | None = None,
+        prepared: PreparedNERConfig,
+        system_prompt: str,
     ) -> RawEntities:
-        system_prompt = build_system_prompt(labels, require_offsets=require_offsets)
-        response_format = build_response_format(labels)
-        allowed_labels = {label.name for label in labels}
+        config = prepared.config
         usage_total: dict[str, Any] = {}
         last_output: str | None = None
         last_error: str | None = None
 
-        for attempt in range(1, retries + 1):
+        for attempt in range(1, config.retries + 1):
             try:
                 completion = await self._create_completion(
                     text=text,
+                    model=config.model,
                     system_prompt=system_prompt,
-                    response_format=response_format,
-                    max_tokens=max_tokens,
-                    reasoning_effort=reasoning_effort,
+                    response_format=prepared.response_format,
+                    max_tokens=config.max_tokens,
+                    reasoning_effort=config.reasoning_effort,
                     last_output=last_output,
                     last_error=last_error,
                 )
@@ -119,10 +115,10 @@ class CerebrasProvider:
             last_output = content
 
             try:
-                entities = _parse_raw_entities(content, allowed_labels)
+                entities = _parse_raw_entities(content, prepared.allowed_labels)
             except ProviderError as e:
                 last_error = str(e)
-                if attempt == retries:
+                if attempt == config.retries:
                     details = {"attempts": attempt, "last_error": last_error}
                     if usage_total:
                         details["usage"] = usage_total
@@ -140,6 +136,7 @@ class CerebrasProvider:
         self,
         *,
         text: str,
+        model: str,
         system_prompt: str,
         response_format: dict[str, Any],
         max_tokens: int,
@@ -164,7 +161,7 @@ class CerebrasProvider:
             )
 
         params: dict[str, Any] = {
-            "model": self.model,
+            "model": model,
             "messages": messages,
             "response_format": response_format,
             "temperature": 0,

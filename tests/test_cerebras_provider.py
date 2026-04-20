@@ -7,9 +7,10 @@ import httpx
 import pytest
 from cerebras.cloud.sdk import APIStatusError, RateLimitError
 
+from ner_service.config_store import prepare_config
 from ner_service.providers.base import ProviderQuotaError, ProviderRateLimitError
 from ner_service.providers.cerebras import CerebrasProvider
-from ner_service.schemas import EntityLabel
+from ner_service.schemas import EntityLabel, NERConfig
 
 
 def _labels() -> list[EntityLabel]:
@@ -30,6 +31,7 @@ def _completion(content: str, total_tokens: int) -> SimpleNamespace:
 async def test_cerebras_provider_retries_invalid_output(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = CerebrasProvider(api_key="test")
     calls: list[dict[str, Any]] = []
+    prepared = prepare_config(NERConfig(labels=_labels(), retries=3, max_tokens=1024))
 
     async def fake_create(**kwargs: Any) -> SimpleNamespace:
         calls.append(kwargs)
@@ -41,10 +43,8 @@ async def test_cerebras_provider_retries_invalid_output(monkeypatch: pytest.Monk
 
     result = await provider.extract(
         "Tim Cook visited Berlin.",
-        _labels(),
-        require_offsets=False,
-        retries=3,
-        max_tokens=1024,
+        prepared=prepared,
+        system_prompt="Extract entities.",
     )
 
     assert [(e.text, e.label) for e in result.entities] == [("Tim Cook", "PERSON")]
@@ -56,6 +56,7 @@ async def test_cerebras_provider_retries_invalid_output(monkeypatch: pytest.Monk
 
 async def test_cerebras_provider_maps_402_to_quota_error(monkeypatch: pytest.MonkeyPatch) -> None:
     provider = CerebrasProvider(api_key="test")
+    prepared = prepare_config(NERConfig(labels=_labels(), retries=1, max_tokens=1024))
 
     async def fake_create(**_: Any) -> None:
         request = httpx.Request("POST", "https://api.cerebras.ai/v1/chat/completions")
@@ -71,10 +72,8 @@ async def test_cerebras_provider_maps_402_to_quota_error(monkeypatch: pytest.Mon
     with pytest.raises(ProviderQuotaError) as exc_info:
         await provider.extract(
             "Tim Cook",
-            _labels(),
-            require_offsets=False,
-            retries=1,
-            max_tokens=1024,
+            prepared=prepared,
+            system_prompt="Extract entities.",
         )
 
     assert exc_info.value.details["status_code"] == 402
@@ -84,6 +83,7 @@ async def test_cerebras_provider_preserves_rate_limit_headers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     provider = CerebrasProvider(api_key="test")
+    prepared = prepare_config(NERConfig(labels=_labels(), retries=1, max_tokens=1024))
 
     async def fake_create(**_: Any) -> None:
         request = httpx.Request("POST", "https://api.cerebras.ai/v1/chat/completions")
@@ -106,10 +106,8 @@ async def test_cerebras_provider_preserves_rate_limit_headers(
     with pytest.raises(ProviderRateLimitError) as exc_info:
         await provider.extract(
             "Tim Cook",
-            _labels(),
-            require_offsets=False,
-            retries=1,
-            max_tokens=1024,
+            prepared=prepared,
+            system_prompt="Extract entities.",
         )
 
     assert exc_info.value.headers == {

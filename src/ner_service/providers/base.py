@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from ner_service.schemas import EntityLabel, RawEntities
+from ner_service.config_store import PreparedNERConfig
+from ner_service.schemas import RawEntities
 
 
 class ProviderError(Exception):
@@ -50,12 +51,9 @@ class NerProvider(Protocol):
     async def extract(
         self,
         text: str,
-        labels: list[EntityLabel],
         *,
-        require_offsets: bool,
-        retries: int,
-        max_tokens: int,
-        reasoning_effort: str | None = None,
+        prepared: PreparedNERConfig,
+        system_prompt: str,
     ) -> RawEntities: ...
 
     async def aclose(self) -> None: ...

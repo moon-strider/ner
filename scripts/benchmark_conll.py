@@ -11,7 +11,7 @@ from typing import Any
 
 from ner_service.config import Settings
 from ner_service.providers.registry import get_provider
-from ner_service.schemas import EntityLabel, ExtractRequest
+from ner_service.schemas import EntityLabel, ExtractRequest, NERConfig
 from ner_service.service import NerService
 
 CONLL_LABEL_MAP = {
@@ -153,15 +153,12 @@ def _bio_to_spans(tokens: list[str], tags: list[str]) -> tuple[str, list[Span]]:
 
 async def _score_one(
     service: NerService,
-    labels: list[EntityLabel],
+    config_id: str,
     idx: int,
     text: str,
     gold_spans: list[Span],
     sem: asyncio.Semaphore,
     require_offsets: bool,
-    retries: int,
-    max_tokens: int | None,
-    reasoning_effort: str | None,
 ) -> Score:
     if not text.strip():
         return Score(0, 0, 0, 0.0, False, None)
@@ -171,12 +168,8 @@ async def _score_one(
             response = await service.extract(
                 ExtractRequest(
                     text=text,
-                    labels=labels,
-                    require_offsets=require_offsets,
-                    retries=retries,
-                    max_tokens=max_tokens,
-                ),
-                reasoning_effort=reasoning_effort,
+                    config_id=config_id,
+                )
             )
         except Exception as e:
             print(f"[{idx}] error: {e}", file=sys.stderr)
@@ -215,6 +208,7 @@ async def _run(
     model: str | None,
     reasoning_effort: str | None,
     require_offsets: bool,
+    case_sensitive: bool,
     retries: int,
     max_tokens: int | None,
     dataset_cache: Path,
@@ -226,15 +220,25 @@ async def _run(
         settings_kwargs["max_tokens"] = max_tokens
     settings = Settings(**settings_kwargs)
     provider = get_provider(settings)
-    service = NerService(provider, max_tokens=settings.max_tokens)
+    service = NerService(provider, default_model=settings.ner_model, max_tokens=settings.max_tokens)
 
     labels = list(CONLL_LABEL_MAP.values())
+    config = NERConfig(
+        labels=labels,
+        model=settings.ner_model,
+        require_offsets=require_offsets,
+        case_sensitive=case_sensitive,
+        retries=retries,
+        max_tokens=settings.max_tokens,
+        reasoning_effort=reasoning_effort,
+    )
+    config_id = service.create_config(config).id
     rows = _load_conll(limit, dataset_cache)
     print(
         f"Loaded {len(rows)} examples; mode={'offsets' if require_offsets else 'dictionary'}; "
         f"model={settings.ner_model}; reasoning_effort={reasoning_effort or 'default'}; "
         f"max_tokens={settings.max_tokens}; retries={retries}; concurrency={concurrency}; "
-        f"dataset_cache={dataset_cache}"
+        f"case_sensitive={case_sensitive}; dataset_cache={dataset_cache}"
     )
 
     sem = asyncio.Semaphore(concurrency)
@@ -243,15 +247,12 @@ async def _run(
         asyncio.create_task(
             _score_one(
                 service,
-                labels,
+                config_id,
                 i,
                 text,
                 gold,
                 sem,
                 require_offsets,
-                retries,
-                max_tokens,
-                reasoning_effort,
             )
         )
         for i, (text, gold) in enumerate(rows, 1)
@@ -288,6 +289,7 @@ async def _run(
     print(f"\nmode={'offsets' if require_offsets else 'dictionary'}")
     print(f"model={settings.ner_model}")
     print(f"reasoning_effort={reasoning_effort or 'default'}")
+    print(f"case_sensitive={case_sensitive}")
     print(
         f"examples={total} concurrency={concurrency} "
         f"max_tokens={settings.max_tokens} retries={retries}"
@@ -327,6 +329,20 @@ def main() -> None:
         help="reasoning effort for supported models",
     )
     parser.add_argument("--require-offsets", action="store_true", help="score exact offsets")
+    case_group = parser.add_mutually_exclusive_group()
+    case_group.add_argument(
+        "--case-sensitive",
+        dest="case_sensitive",
+        action="store_true",
+        default=True,
+        help="match entity text case-sensitively (default)",
+    )
+    case_group.add_argument(
+        "--case-insensitive",
+        dest="case_sensitive",
+        action="store_false",
+        help="match and canonicalize entity text case-insensitively",
+    )
     parser.add_argument(
         "--retries",
         type=int,
@@ -354,6 +370,7 @@ def main() -> None:
             args.model,
             args.reasoning_effort,
             args.require_offsets,
+            args.case_sensitive,
             args.retries,
             args.max_tokens,
             args.dataset_cache,

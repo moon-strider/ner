@@ -5,10 +5,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
 from ner_service.config import Settings, get_settings
+from ner_service.config_store import ConfigNotFoundError, PromptTemplateError
 from ner_service.providers.base import (
     ProviderAuthError,
     ProviderBadRequestError,
@@ -19,7 +20,13 @@ from ner_service.providers.base import (
     ProviderUpstreamError,
 )
 from ner_service.providers.registry import get_provider
-from ner_service.schemas import ExtractRequest, ExtractResponse
+from ner_service.schemas import (
+    ExtractRequest,
+    ExtractResponse,
+    NERConfig,
+    NERConfigPatch,
+    NERConfigRecord,
+)
 from ner_service.service import NerService
 
 logger = logging.getLogger(__name__)
@@ -30,7 +37,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings if hasattr(app.state, "settings") else get_settings()
     app.state.settings = settings
     provider = get_provider(settings)
-    app.state.service = NerService(provider, max_tokens=settings.max_tokens)
+    app.state.service = NerService(
+        provider,
+        default_model=settings.ner_model,
+        max_tokens=settings.max_tokens,
+    )
     try:
         yield
     finally:
@@ -68,6 +79,50 @@ def _register_routes(app: FastAPI) -> None:
         service = _get_service(request)
         return {"provider": service.provider.name, "model": service.provider.model}
 
+    @app.post("/configs", response_model=NERConfigRecord)
+    async def create_config(
+        payload: NERConfig,
+        service: NerService = Depends(_get_service),
+    ) -> NERConfigRecord:
+        return service.create_config(payload)
+
+    @app.get("/configs", response_model=list[NERConfigRecord])
+    async def list_configs(
+        service: NerService = Depends(_get_service),
+    ) -> list[NERConfigRecord]:
+        return service.list_configs()
+
+    @app.get("/configs/{config_id}", response_model=NERConfigRecord)
+    async def get_config(
+        config_id: str,
+        service: NerService = Depends(_get_service),
+    ) -> NERConfigRecord:
+        return service.get_config(config_id)
+
+    @app.put("/configs/{config_id}", response_model=NERConfigRecord)
+    async def put_config(
+        config_id: str,
+        payload: NERConfig,
+        service: NerService = Depends(_get_service),
+    ) -> NERConfigRecord:
+        return service.put_config(config_id, payload)
+
+    @app.patch("/configs/{config_id}", response_model=NERConfigRecord)
+    async def patch_config(
+        config_id: str,
+        payload: NERConfigPatch,
+        service: NerService = Depends(_get_service),
+    ) -> NERConfigRecord:
+        return service.patch_config(config_id, payload)
+
+    @app.delete("/configs/{config_id}", status_code=204)
+    async def delete_config(
+        config_id: str,
+        service: NerService = Depends(_get_service),
+    ) -> Response:
+        service.delete_config(config_id)
+        return Response(status_code=204)
+
     @app.post("/extract", response_model=ExtractResponse, response_model_exclude_none=True)
     async def extract(
         payload: ExtractRequest,
@@ -77,6 +132,18 @@ def _register_routes(app: FastAPI) -> None:
 
 
 def _register_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(ConfigNotFoundError)
+    async def _config_not_found(_: Request, exc: ConfigNotFoundError) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": f"config not found: {exc}"})
+
+    @app.exception_handler(PromptTemplateError)
+    async def _prompt_template(_: Request, exc: PromptTemplateError) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @app.exception_handler(ValueError)
+    async def _value_error(_: Request, exc: ValueError) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
     @app.exception_handler(ProviderAuthError)
     async def _auth(_: Request, exc: ProviderAuthError) -> JSONResponse:
         return _provider_response(502, exc, prefix="provider auth failed")

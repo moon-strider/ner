@@ -44,7 +44,12 @@ def build_response_format(labels: list[EntityLabel]) -> dict[str, Any]:
     }
 
 
-def build_system_prompt(labels: list[EntityLabel], *, require_offsets: bool = False) -> str:
+def build_system_prompt(
+    labels: list[EntityLabel],
+    *,
+    require_offsets: bool = False,
+    case_sensitive: bool = True,
+) -> str:
     lines = [
         "You are a named entity recognition system.",
         "Extract entities from the user text that belong to the listed entity types.",
@@ -66,6 +71,12 @@ def build_system_prompt(labels: list[EntityLabel], *, require_offsets: bool = Fa
                 "Return each unique (text, label) pair at most once.",
                 "Do not return character positions or offsets.",
             ]
+        )
+    if case_sensitive:
+        lines.append("Entity text matching is case-sensitive.")
+    else:
+        lines.append(
+            "Entity text matching is case-insensitive; return the source text casing when possible."
         )
     lines.extend(["", "Entity types:"])
     for label in labels:

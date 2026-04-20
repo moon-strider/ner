@@ -37,9 +37,16 @@ def test_providers_endpoint(client: TestClient) -> None:
 
 def test_extract_recovers_gold_entities(client: TestClient, samples: list[dict]) -> None:
     for sample in samples[:3]:
+        cfg = client.post(
+            "/configs",
+            json={"labels": sample["labels"], "require_offsets": True},
+        )
+        assert cfg.status_code == 200, cfg.text
+        config_id = cfg.json()["id"]
+
         r = client.post(
             "/extract",
-            json={"text": sample["text"], "labels": sample["labels"], "require_offsets": True},
+            json={"text": sample["text"], "config_id": config_id},
         )
         assert r.status_code == 200, r.text
         returned = {(e["text"], e["label"]) for e in r.json()["entities"]}

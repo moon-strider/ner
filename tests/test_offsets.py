@@ -67,3 +67,9 @@ def test_label_is_preserved_even_when_surface_matches_other_label() -> None:
     text = "Foo Bar."
     out = attach_offsets(text, [_raw("Foo", "PERSON"), _raw("Bar", "LOCATION")])
     assert [(e.text, e.label) for e in out] == [("Foo", "PERSON"), ("Bar", "LOCATION")]
+
+
+def test_case_insensitive_offsets_return_input_casing() -> None:
+    text = "Tim Cook visited Berlin."
+    out = attach_offsets(text, [_raw("tim cook", "PERSON")], case_sensitive=False)
+    assert [(e.text, e.label, e.start, e.end) for e in out] == [("Tim Cook", "PERSON", 0, 8)]
