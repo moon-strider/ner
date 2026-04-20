@@ -41,8 +41,9 @@ def _load_conll(limit: int | None) -> list[tuple[str, list[Span]]]:
     except ImportError:
         sys.exit("datasets package is required. Install with: uv sync --extra dev")
 
-    ds = load_dataset("conll2003", split="test", trust_remote_code=True)
-    tag_feature = ds.features["ner_tags"].feature
+    ds = load_dataset("eriktks/conll2003", split="test", revision="refs/convert/parquet")
+    ner_feature = ds.features["ner_tags"]
+    tag_feature = getattr(ner_feature, "feature", None)
     assert isinstance(tag_feature, ClassLabel)
     names: list[str] = tag_feature.names
 
@@ -97,32 +98,51 @@ def _bio_to_spans(tokens: list[str], tags: list[str]) -> tuple[str, list[Span]]:
     return text, spans
 
 
-async def _run(limit: int | None) -> None:
+async def _score_one(
+    service: NerService,
+    labels: list[EntityLabel],
+    idx: int,
+    text: str,
+    gold_spans: list[Span],
+    sem: asyncio.Semaphore,
+) -> tuple[int, int, int]:
+    if not text.strip():
+        return 0, 0, 0
+    async with sem:
+        try:
+            response = await service.extract(ExtractRequest(text=text, labels=labels))
+        except Exception as e:
+            print(f"[{idx}] error: {e}", file=sys.stderr)
+            return 0, 0, len(gold_spans)
+    pred = {Span(label=e.label, start=e.start, end=e.end) for e in response.entities}
+    gold = set(gold_spans)
+    return len(pred & gold), len(pred - gold), len(gold - pred)
+
+
+async def _run(limit: int | None, concurrency: int) -> None:
     settings = Settings()
     provider = get_provider(settings)
     service = NerService(provider)
 
     labels = list(CONLL_LABEL_MAP.values())
     rows = _load_conll(limit)
-    print(f"Loaded {len(rows)} examples")
+    print(f"Loaded {len(rows)} examples; concurrency={concurrency}")
+
+    sem = asyncio.Semaphore(concurrency)
+    tasks = [
+        asyncio.create_task(_score_one(service, labels, i, text, gold, sem))
+        for i, (text, gold) in enumerate(rows, 1)
+    ]
 
     tp = fp = fn = 0
-    for idx, (text, gold_spans) in enumerate(rows, 1):
-        if not text.strip():
-            continue
-        try:
-            response = await service.extract(ExtractRequest(text=text, labels=labels))
-        except Exception as e:
-            print(f"[{idx}] error: {e}", file=sys.stderr)
-            fn += len(gold_spans)
-            continue
-        pred = {Span(label=e.label, start=e.start, end=e.end) for e in response.entities}
-        gold = set(gold_spans)
-        tp += len(pred & gold)
-        fp += len(pred - gold)
-        fn += len(gold - pred)
-        if idx % 25 == 0:
-            print(f"[{idx}] tp={tp} fp={fp} fn={fn}")
+    total = len(tasks)
+    for done, coro in enumerate(asyncio.as_completed(tasks), 1):
+        d_tp, d_fp, d_fn = await coro
+        tp += d_tp
+        fp += d_fp
+        fn += d_fn
+        if done % 25 == 0 or done == total:
+            print(f"[{done}/{total}] tp={tp} fp={fp} fn={fn}")
 
     await service.aclose()
 
@@ -136,8 +156,14 @@ async def _run(limit: int | None) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=200, help="number of examples (default: 200)")
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=100,
+        help="max concurrent in-flight requests (default: 100)",
+    )
     args = parser.parse_args()
-    asyncio.run(_run(args.limit))
+    asyncio.run(_run(args.limit, args.concurrency))
 
 
 if __name__ == "__main__":
