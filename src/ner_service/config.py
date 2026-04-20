@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     ner_provider: str = Field(default="cerebras")
     ner_model: str = Field(default="llama3.1-8b")
     request_timeout_s: float = Field(default=30.0, gt=0.0)
+    max_tokens: int = Field(default=1024, gt=0)
     max_text_length: int = Field(default=32_000, gt=0)
     max_labels: int = Field(default=50, gt=0)
 

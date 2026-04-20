@@ -44,16 +44,30 @@ def build_response_format(labels: list[EntityLabel]) -> dict[str, Any]:
     }
 
 
-def build_system_prompt(labels: list[EntityLabel]) -> str:
+def build_system_prompt(labels: list[EntityLabel], *, require_offsets: bool = False) -> str:
     lines = [
         "You are a named entity recognition system.",
-        "Extract all spans from the user text that belong to the listed entity types.",
-        "Return the exact surface form from the text (preserve casing and punctuation).",
-        "If the same entity appears multiple times, return it once per occurrence in order.",
+        "Extract entities from the user text that belong to the listed entity types.",
+        "Return JSON only, matching the provided schema.",
+        "Return the exact surface form from the text. Preserve casing, punctuation, and spacing.",
+        "Do not infer entities that are not explicitly present in the text.",
         "If no entities are present, return an empty list.",
-        "",
-        "Entity types:",
     ]
+    if require_offsets:
+        lines.extend(
+            [
+                "Return one entity per occurrence, in reading order.",
+                "Each returned text must be a contiguous substring of the user text.",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "Return each unique (text, label) pair at most once.",
+                "Do not return character positions or offsets.",
+            ]
+        )
+    lines.extend(["", "Entity types:"])
     for label in labels:
         lines.append(f"- {label.name}: {label.description}")
     return "\n".join(lines)

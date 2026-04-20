@@ -27,6 +27,9 @@ class EntityLabel(BaseModel):
 class ExtractRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=32_000)
     labels: list[EntityLabel] = Field(..., min_length=1, max_length=50)
+    require_offsets: bool = False
+    retries: int = Field(default=3, ge=1)
+    max_tokens: int | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def _unique_label_names(self) -> ExtractRequest:
@@ -37,11 +40,15 @@ class ExtractRequest(BaseModel):
 
 
 class RawEntity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     text: str
     label: str
 
 
 class RawEntities(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     entities: list[RawEntity]
     usage: dict[str, Any] | None = None
 
@@ -49,8 +56,8 @@ class RawEntities(BaseModel):
 class Entity(BaseModel):
     text: str
     label: str
-    start: int = Field(..., ge=0)
-    end: int = Field(..., ge=0)
+    start: int | None = Field(default=None, ge=0)
+    end: int | None = Field(default=None, ge=0)
 
 
 class ExtractResponse(BaseModel):

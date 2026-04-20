@@ -13,6 +13,8 @@ from ner_service.providers.base import (
     ProviderAuthError,
     ProviderBadRequestError,
     ProviderError,
+    ProviderPermissionError,
+    ProviderQuotaError,
     ProviderRateLimitError,
     ProviderUpstreamError,
 )
@@ -28,7 +30,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings: Settings = app.state.settings if hasattr(app.state, "settings") else get_settings()
     app.state.settings = settings
     provider = get_provider(settings)
-    app.state.service = NerService(provider)
+    app.state.service = NerService(provider, max_tokens=settings.max_tokens)
     try:
         yield
     finally:
@@ -66,7 +68,7 @@ def _register_routes(app: FastAPI) -> None:
         service = _get_service(request)
         return {"provider": service.provider.name, "model": service.provider.model}
 
-    @app.post("/extract", response_model=ExtractResponse)
+    @app.post("/extract", response_model=ExtractResponse, response_model_exclude_none=True)
     async def extract(
         payload: ExtractRequest,
         service: NerService = Depends(_get_service),
@@ -77,23 +79,44 @@ def _register_routes(app: FastAPI) -> None:
 def _register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(ProviderAuthError)
     async def _auth(_: Request, exc: ProviderAuthError) -> JSONResponse:
-        return JSONResponse(status_code=502, content={"detail": f"provider auth failed: {exc}"})
+        return _provider_response(502, exc, prefix="provider auth failed")
 
     @app.exception_handler(ProviderRateLimitError)
     async def _rate(_: Request, exc: ProviderRateLimitError) -> JSONResponse:
-        return JSONResponse(status_code=429, content={"detail": str(exc)})
+        return _provider_response(429, exc)
+
+    @app.exception_handler(ProviderQuotaError)
+    async def _quota(_: Request, exc: ProviderQuotaError) -> JSONResponse:
+        return _provider_response(402, exc)
+
+    @app.exception_handler(ProviderPermissionError)
+    async def _permission(_: Request, exc: ProviderPermissionError) -> JSONResponse:
+        return _provider_response(403, exc)
 
     @app.exception_handler(ProviderBadRequestError)
     async def _bad(_: Request, exc: ProviderBadRequestError) -> JSONResponse:
-        return JSONResponse(status_code=400, content={"detail": str(exc)})
+        return _provider_response(400, exc)
 
     @app.exception_handler(ProviderUpstreamError)
     async def _upstream(_: Request, exc: ProviderUpstreamError) -> JSONResponse:
-        return JSONResponse(status_code=502, content={"detail": str(exc)})
+        return _provider_response(502, exc)
 
     @app.exception_handler(ProviderError)
     async def _provider(_: Request, exc: ProviderError) -> JSONResponse:
-        return JSONResponse(status_code=502, content={"detail": str(exc)})
+        return _provider_response(502, exc)
+
+
+def _provider_response(
+    status_code: int,
+    exc: ProviderError,
+    *,
+    prefix: str | None = None,
+) -> JSONResponse:
+    message = f"{prefix}: {exc}" if prefix else str(exc)
+    detail: dict[str, Any] = {"message": message}
+    if exc.details:
+        detail["provider"] = exc.details
+    return JSONResponse(status_code=status_code, content={"detail": detail}, headers=exc.headers)
 
 
 app = create_app()

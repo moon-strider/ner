@@ -13,6 +13,9 @@ def test_accepts_minimal_valid_request() -> None:
     )
     assert req.text == "Hello"
     assert req.labels[0].name == "PERSON"
+    assert req.require_offsets is False
+    assert req.retries == 3
+    assert req.max_tokens is None
 
 
 def test_rejects_empty_text() -> None:
@@ -59,3 +62,21 @@ def test_rejects_too_many_labels() -> None:
     many = [EntityLabel(name=f"L{i}", description="d") for i in range(51)]
     with pytest.raises(ValidationError):
         ExtractRequest(text="hi", labels=many)
+
+
+def test_rejects_invalid_retries() -> None:
+    with pytest.raises(ValidationError):
+        ExtractRequest(
+            text="Hi",
+            labels=[EntityLabel(name="PERSON", description="people")],
+            retries=0,
+        )
+
+
+def test_rejects_invalid_max_tokens() -> None:
+    with pytest.raises(ValidationError):
+        ExtractRequest(
+            text="Hi",
+            labels=[EntityLabel(name="PERSON", description="people")],
+            max_tokens=0,
+        )

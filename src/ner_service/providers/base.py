@@ -1,12 +1,21 @@
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from ner_service.schemas import EntityLabel, RawEntities
 
 
 class ProviderError(Exception):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        details: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.details = details or {}
+        self.headers = headers or {}
 
 
 class ProviderAuthError(ProviderError):
@@ -14,6 +23,14 @@ class ProviderAuthError(ProviderError):
 
 
 class ProviderRateLimitError(ProviderError):
+    pass
+
+
+class ProviderQuotaError(ProviderError):
+    pass
+
+
+class ProviderPermissionError(ProviderError):
     pass
 
 
@@ -30,6 +47,15 @@ class NerProvider(Protocol):
     name: str
     model: str
 
-    async def extract(self, text: str, labels: list[EntityLabel]) -> RawEntities: ...
+    async def extract(
+        self,
+        text: str,
+        labels: list[EntityLabel],
+        *,
+        require_offsets: bool,
+        retries: int,
+        max_tokens: int,
+        reasoning_effort: str | None = None,
+    ) -> RawEntities: ...
 
     async def aclose(self) -> None: ...

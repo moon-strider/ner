@@ -39,7 +39,7 @@ def test_extract_recovers_gold_entities(client: TestClient, samples: list[dict])
     for sample in samples[:3]:
         r = client.post(
             "/extract",
-            json={"text": sample["text"], "labels": sample["labels"]},
+            json={"text": sample["text"], "labels": sample["labels"], "require_offsets": True},
         )
         assert r.status_code == 200, r.text
         returned = {(e["text"], e["label"]) for e in r.json()["entities"]}
