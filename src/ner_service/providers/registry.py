@@ -14,6 +14,7 @@ def get_provider(settings: Settings) -> NerProvider:
                 api_key=settings.cerebras_api_key.get_secret_value(),
                 model=settings.ner_model,
                 timeout=settings.request_timeout_s,
+                max_retries=settings.transport_retries,
             )
         case other:
             raise ValueError(f"unknown provider: {other!r}")

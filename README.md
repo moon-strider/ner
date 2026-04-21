@@ -38,18 +38,27 @@ Response:
 
 ```json
 {
-  "entities": [
-    {"text": "Tim Cook", "label": "PERSON"},
-    {"text": "Berlin", "label": "LOCATION"}
-  ],
-  "model": "llama3.1-8b",
-  "provider": "cerebras"
+  "data": {
+    "entities": [
+      {"text": "Tim Cook", "label": "PERSON"},
+      {"text": "Berlin", "label": "LOCATION"}
+    ],
+    "model": "llama3.1-8b",
+    "provider": "cerebras"
+  },
+  "meta": {
+    "request_id": "0b4c6a80-4c4b-4cd0-9b1f-30b66b8e3e22",
+    "latency_ms": 824.6,
+    "attempts": 1,
+    "warnings": []
+  }
 }
 ```
 
 ## API
 
 - `GET /health` — liveness probe.
+- `GET /ready` — readiness probe; verifies service initialization without making an LLM call.
 - `GET /providers` — current provider and model.
 - `POST /configs` — create an in-memory NER config; returns `{id, config}`.
 - `GET /configs` — list configs.
@@ -57,7 +66,7 @@ Response:
 - `PUT /configs/{id}` — replace one config.
 - `PATCH /configs/{id}` — partially update one config.
 - `DELETE /configs/{id}` — delete one config.
-- `POST /extract` — body: `{text, config_id?, config?, prompt_payload?}`. Exactly one of `config_id` or inline `config` is required.
+- `POST /extract` — body: `{text, config_id?, config?, prompt_payload?}`. Exactly one of `config_id` or inline `config` is required. Returns `{data, meta}`.
 
 `NERConfig` fields:
 
@@ -106,7 +115,28 @@ Environment variables (also read from `.env`):
 | `NER_PROVIDER` | `cerebras` | Provider id. |
 | `NER_MODEL` | `llama3.1-8b` | Model identifier passed to the provider. |
 | `REQUEST_TIMEOUT_S` | `30` | Per-request upstream timeout. |
+| `TRANSPORT_RETRIES` | `2` | SDK/network retries for upstream transport failures. |
 | `MAX_TOKENS` | `1024` | Default `max_completion_tokens` passed to the provider. |
+| `MAX_TEXT_LENGTH` | `32000` | Maximum input text length accepted by the service. |
+| `MAX_LABELS` | `50` | Maximum labels per NER config. |
+| `MAX_SYSTEM_PROMPT_LENGTH` | `20000` | Maximum custom `system_prompt` length. |
+| `MAX_LABEL_DESCRIPTION_LENGTH` | `500` | Maximum label description length. |
+| `MAX_CONFIG_ID_LENGTH` | `128` | Maximum config id length accepted by API paths and payloads. |
+
+`NERConfig.retries` controls model repair attempts when the provider returns invalid structured output. `TRANSPORT_RETRIES` controls SDK/network retries before the service receives a provider response.
+
+Errors use a single envelope:
+
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "request validation failed",
+    "details": {},
+    "request_id": "0b4c6a80-4c4b-4cd0-9b1f-30b66b8e3e22"
+  }
+}
+```
 
 ## Development
 
@@ -151,4 +181,6 @@ Cost to run:
 ```bash
 docker build -t ner-service .
 docker run --rm -p 8000:8000 --env-file .env ner-service
+curl -fsS http://localhost:8000/health
+curl -fsS http://localhost:8000/ready
 ```

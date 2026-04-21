@@ -49,6 +49,7 @@ async def test_cerebras_provider_retries_invalid_output(monkeypatch: pytest.Monk
 
     assert [(e.text, e.label) for e in result.entities] == [("Tim Cook", "PERSON")]
     assert result.usage == {"prompt_tokens": 6, "completion_tokens": 2, "total_tokens": 8}
+    assert result.attempts == 2
     assert len(calls) == 2
     assert calls[1]["last_output"] == "{"
     assert "invalid JSON" in calls[1]["last_error"]

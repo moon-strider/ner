@@ -12,7 +12,7 @@ class EntityLabel(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     name: str = Field(..., min_length=1, max_length=64)
-    description: str = Field(..., min_length=1, max_length=500)
+    description: str = Field(..., min_length=1)
 
     @field_validator("name")
     @classmethod
@@ -25,14 +25,14 @@ class EntityLabel(BaseModel):
 
 
 class NERConfig(BaseModel):
-    labels: list[EntityLabel] = Field(..., min_length=1, max_length=50)
+    labels: list[EntityLabel] = Field(..., min_length=1)
     model: str = Field(default="llama3.1-8b", min_length=1, max_length=128)
     require_offsets: bool = False
     case_sensitive: bool = True
     retries: int = Field(default=3, ge=1)
     max_tokens: int = Field(default=1024, gt=0)
     reasoning_effort: Literal["low", "medium", "high"] | None = None
-    system_prompt: str | None = Field(default=None, min_length=1, max_length=20_000)
+    system_prompt: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def _unique_label_names(self) -> NERConfig:
@@ -43,14 +43,14 @@ class NERConfig(BaseModel):
 
 
 class NERConfigPatch(BaseModel):
-    labels: list[EntityLabel] | None = Field(default=None, min_length=1, max_length=50)
+    labels: list[EntityLabel] | None = Field(default=None, min_length=1)
     model: str | None = Field(default=None, min_length=1, max_length=128)
     require_offsets: bool | None = None
     case_sensitive: bool | None = None
     retries: int | None = Field(default=None, ge=1)
     max_tokens: int | None = Field(default=None, gt=0)
     reasoning_effort: Literal["low", "medium", "high"] | None = None
-    system_prompt: str | None = Field(default=None, min_length=1, max_length=20_000)
+    system_prompt: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def _unique_label_names(self) -> NERConfigPatch:
@@ -68,8 +68,8 @@ class NERConfigRecord(BaseModel):
 
 
 class ExtractRequest(BaseModel):
-    text: str = Field(..., min_length=1, max_length=32_000)
-    config_id: str | None = Field(default=None, min_length=1, max_length=128)
+    text: str = Field(..., min_length=1)
+    config_id: str | None = Field(default=None, min_length=1)
     config: NERConfig | None = None
     prompt_payload: dict[str, Any] = Field(default_factory=dict)
 
@@ -92,6 +92,7 @@ class RawEntities(BaseModel):
 
     entities: list[RawEntity]
     usage: dict[str, Any] | None = None
+    attempts: int = Field(default=1, ge=1)
 
 
 class Entity(BaseModel):
@@ -106,3 +107,24 @@ class ExtractResponse(BaseModel):
     model: str
     provider: str
     usage: dict[str, Any] | None = None
+    attempts: int = Field(default=1, ge=1)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ExtractResponseData(BaseModel):
+    entities: list[Entity]
+    model: str
+    provider: str
+    usage: dict[str, Any] | None = None
+
+
+class ResponseMeta(BaseModel):
+    request_id: str
+    latency_ms: float = Field(..., ge=0.0)
+    attempts: int = Field(..., ge=1)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ExtractEnvelope(BaseModel):
+    data: ExtractResponseData
+    meta: ResponseMeta

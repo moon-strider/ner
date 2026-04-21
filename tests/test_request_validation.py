@@ -3,7 +3,10 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from ner_service.config import RuntimeLimits
 from ner_service.schemas import EntityLabel, ExtractRequest, NERConfig
+from ner_service.service import NerService
+from tests.test_service import FakeProvider
 
 
 def _config() -> NERConfig:
@@ -74,15 +77,19 @@ def test_rejects_empty_description() -> None:
         EntityLabel(name="PERSON", description="")
 
 
-def test_rejects_text_over_limit() -> None:
-    with pytest.raises(ValidationError):
-        ExtractRequest(text="x" * 32_001, config_id="cfg-1")
+async def test_service_rejects_text_over_runtime_limit() -> None:
+    service = NerService(FakeProvider(), limits=RuntimeLimits(max_text_length=3))
+    record = service.create_config(_config())
+
+    with pytest.raises(ValueError, match="text length"):
+        await service.extract(ExtractRequest(text="xxxx", config_id=record.id))
 
 
-def test_rejects_too_many_labels() -> None:
+def test_service_rejects_too_many_labels_over_runtime_limit() -> None:
+    service = NerService(FakeProvider(), limits=RuntimeLimits(max_labels=1))
     many = [EntityLabel(name=f"L{i}", description="d") for i in range(51)]
-    with pytest.raises(ValidationError):
-        NERConfig(labels=many)
+    with pytest.raises(ValueError, match="labels length"):
+        service.create_config(NERConfig(labels=many))
 
 
 def test_rejects_invalid_retries() -> None:

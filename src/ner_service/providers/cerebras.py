@@ -128,7 +128,7 @@ class CerebrasProvider:
                     ) from e
                 continue
 
-            return RawEntities(entities=entities, usage=usage_total or None)
+            return RawEntities(entities=entities, usage=usage_total or None, attempts=attempt)
 
         raise ProviderError("model returned invalid structured output")
 

@@ -49,10 +49,10 @@ def test_extract_recovers_gold_entities(client: TestClient, samples: list[dict])
             json={"text": sample["text"], "config_id": config_id},
         )
         assert r.status_code == 200, r.text
-        returned = {(e["text"], e["label"]) for e in r.json()["entities"]}
+        returned = {(e["text"], e["label"]) for e in r.json()["data"]["entities"]}
         gold = {(e["text"], e["label"]) for e in sample["gold"]}
         missing = gold - returned
         assert not missing, f"missing gold entities: {missing} (got {returned})"
 
-        for e in r.json()["entities"]:
+        for e in r.json()["data"]["entities"]:
             assert sample["text"][e["start"] : e["end"]] == e["text"]
