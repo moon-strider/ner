@@ -30,5 +30,14 @@ run:
 build:
     docker build -t ner-service .
 
+observe-up:
+    docker compose up -d --build
+
+observe-down:
+    docker compose down -v
+
+observe-logs:
+    docker compose logs -f ner-service prometheus grafana
+
 bench-offsets:
     CEREBRAS_API_KEY={{ env_var('CEREBRAS_API_KEY') }} uv run --extra dev python scripts/benchmark_conll.py --model llama3.1-8b --concurrency 40 --require-offsets

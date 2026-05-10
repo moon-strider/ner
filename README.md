@@ -192,3 +192,18 @@ docker run --rm -p 8000:8000 --env-file .env ner-service
 curl -fsS http://localhost:8000/v1/health
 curl -fsS http://localhost:8000/v1/ready
 ```
+
+## Observability stack
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+- NER service: `http://localhost:8000/v1/health`
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000` (`admin` / `admin`)
+- Provisioned Grafana datasource UID: `prometheus`
+- Provisioned dashboard UID: `ner-service-overview`
+
+The compose stack scrapes the service `/metrics` endpoint every 15 seconds and provisions a Grafana dashboard with request rate, provider errors, token volume, and p95 latency panels.

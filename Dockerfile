@@ -25,6 +25,7 @@ RUN groupadd --system app \
 WORKDIR /app
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --from=builder --chown=app:app /app/src /app/src
+RUN chown -R app:app /app
 
 USER app
 
