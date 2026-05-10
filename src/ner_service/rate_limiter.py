@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections import deque
-from typing import Any
 
 
 class TokenBucket:

@@ -3,8 +3,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from ner_service.schemas import NERConfig
-
 
 class ConfigStoreBackend(ABC):
     @abstractmethod
@@ -39,8 +37,9 @@ class SQLiteStore(ConfigStoreBackend):
     async def get(self, config_id: str) -> dict[str, Any] | None:
         await self._init()
         import aiosqlite
-        async with aiosqlite.connect(self._path) as db:
-            async with db.execute("SELECT data FROM configs WHERE id=?", (config_id,)) as cursor:
+        async with aiosqlite.connect(self._path) as db, db.execute(
+            "SELECT data FROM configs WHERE id=?", (config_id,)
+        ) as cursor:
                 row = await cursor.fetchone()
                 if row:
                     import json
@@ -49,7 +48,9 @@ class SQLiteStore(ConfigStoreBackend):
 
     async def set(self, config_id: str, config: dict[str, Any]) -> None:
         await self._init()
-        import aiosqlite, json
+        import json
+
+        import aiosqlite
         async with aiosqlite.connect(self._path) as db:
             await db.execute(
                 "INSERT OR REPLACE INTO configs (id, data) VALUES (?, ?)",
@@ -66,8 +67,11 @@ class SQLiteStore(ConfigStoreBackend):
 
     async def list(self) -> list[dict[str, Any]]:
         await self._init()
-        import aiosqlite, json
-        async with aiosqlite.connect(self._path) as db:
-            async with db.execute("SELECT data FROM configs") as cursor:
+        import json
+
+        import aiosqlite
+        async with aiosqlite.connect(self._path) as db, db.execute(
+            "SELECT data FROM configs"
+        ) as cursor:
                 rows = await cursor.fetchall()
                 return [json.loads(r[0]) for r in rows]

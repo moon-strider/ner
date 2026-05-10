@@ -3,21 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 
 from ner_service.config import Settings
-from ner_service.config_store import ConfigNotFoundError, PromptTemplateError
 from ner_service.metrics import MetricsCollector, extraction_timer
-from ner_service.providers.base import (
-    ProviderAuthError,
-    ProviderBadRequestError,
-    ProviderError,
-    ProviderPermissionError,
-    ProviderQuotaError,
-    ProviderRateLimitError,
-    ProviderUpstreamError,
-)
 from ner_service.schemas import (
     ExtractEnvelope,
     ExtractRequest,

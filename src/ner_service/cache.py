@@ -55,12 +55,23 @@ class ResultCache:
         self._backend = backend
         self._ttl = ttl
 
-    def get(self, text: str, config_id: str | None = None, config_hash: str | None = None) -> dict[str, Any] | None:
+    def get(
+        self,
+        text: str,
+        config_id: str | None = None,
+        config_hash: str | None = None,
+    ) -> dict[str, Any] | None:
         if self._backend is None:
             return None
         return self._backend.get(_make_key(text, config_id, config_hash))
 
-    def set(self, text: str, result: dict[str, Any], config_id: str | None = None, config_hash: str | None = None) -> None:
+    def set(
+        self,
+        text: str,
+        result: dict[str, Any],
+        config_id: str | None = None,
+        config_hash: str | None = None,
+    ) -> None:
         if self._backend is None:
             return
         self._backend.set(_make_key(text, config_id, config_hash), result, self._ttl)

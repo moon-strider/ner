@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Any, Generator
+from typing import Any
 
-from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_client import Counter, Histogram
-
+from prometheus_fastapi_instrumentator import Instrumentator
 
 _latency = Histogram(
     "ner_extraction_latency_ms",

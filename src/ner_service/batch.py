@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from ner_service.schemas import Entity, ExtractRequest, ExtractResponse
+from ner_service.schemas import ExtractRequest
 from ner_service.service import NerService
 
 

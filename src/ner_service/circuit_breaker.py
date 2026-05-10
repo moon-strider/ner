@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import deque
 from enum import Enum
 from typing import Any
 
@@ -37,7 +38,8 @@ class CircuitBreaker:
         async with self._lock:
             await self._update_state()
             if self._state == State.OPEN:
-                raise CircuitBreakerOpen(f"circuit breaker is open; last failure at {self._last_failure}")
+                msg = f"circuit breaker is open; last failure at {self._last_failure}"
+                raise CircuitBreakerOpen(msg)
             if self._state == State.HALF_OPEN:
                 if self._half_open_calls >= self._half_open_max_calls:
                     raise CircuitBreakerOpen("circuit breaker half-open quota exhausted")
@@ -45,7 +47,7 @@ class CircuitBreaker:
 
         try:
             result = await coro
-        except Exception as e:
+        except Exception:
             await self._record_failure()
             raise
         else:
@@ -53,10 +55,13 @@ class CircuitBreaker:
             return result
 
     async def _update_state(self) -> None:
-        if self._state == State.OPEN:
-            if self._last_failure is not None and (time.perf_counter() - self._last_failure >= self._recovery_timeout):
-                self._state = State.HALF_OPEN
-                self._half_open_calls = 0
+        if (
+            self._state == State.OPEN
+            and self._last_failure is not None
+            and (time.perf_counter() - self._last_failure >= self._recovery_timeout)
+        ):
+            self._state = State.HALF_OPEN
+            self._half_open_calls = 0
 
     async def _record_failure(self) -> None:
         async with self._lock:

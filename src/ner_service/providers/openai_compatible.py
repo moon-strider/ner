@@ -98,11 +98,11 @@ def _parse_raw_entities(content: str | None, allowed_labels: set[str]) -> list[R
 
 
 def _json_safe(value: Any) -> Any:
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if value is None or isinstance(value, str | int | float | bool):
         return value
     if isinstance(value, Mapping):
         return {str(k): _json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         return [_json_safe(v) for v in value]
     return str(value)
 
@@ -110,7 +110,8 @@ def _json_safe(value: Any) -> Any:
 def _raise_provider_error_from_response(
     status_code: int, body: dict[str, Any], headers: dict[str, str] | None = None
 ) -> None:
-    message = body.get("error", {}).get("message", "provider error") if isinstance(body.get("error"), dict) else str(body)
+    error = body.get("error", {})
+    message = error.get("message", "provider error") if isinstance(error, dict) else str(body)
     details = {"status_code": status_code, "body": _json_safe(body)}
     rate_limit_headers = {}
     if headers:
@@ -205,7 +206,11 @@ class OpenAICompatibleProvider:
                     err_body = response.json()
                 except Exception:
                     err_body = {"raw": response.text}
-                _raise_provider_error_from_response(response.status_code, err_body, dict(response.headers))
+                _raise_provider_error_from_response(
+                    response.status_code,
+                    err_body,
+                    dict(response.headers),
+                )
 
             completion = response.json()
             usage_total = _merge_usage(usage_total, _extract_usage(completion))
@@ -250,7 +255,7 @@ def _merge_usage(
         return total
     result = dict(total)
     for key, value in usage.items():
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             result[key] = result.get(key, 0) + value
         elif isinstance(value, dict):
             existing = result.setdefault(key, {})
