@@ -22,6 +22,7 @@ from ner_service.schemas import (
     NERConfigPatch,
     NERConfigRecord,
 )
+from ner_service.stores import ConfigStoreBackend
 
 
 class NerService:
@@ -33,50 +34,51 @@ class NerService:
         max_tokens: int = 1024,
         limits: RuntimeLimits | None = None,
         cache: ResultCache | None = None,
+        config_store: ConfigStoreBackend | None = None,
     ) -> None:
         self._provider = provider
         self._default_model = default_model
         self._max_tokens = max_tokens
         self._limits = limits or RuntimeLimits()
-        self._configs = ConfigStore()
+        self._configs = ConfigStore(config_store)
         self._cache = cache
 
     @property
     def provider(self) -> NerProvider:
         return self._provider
 
-    def create_config(self, config: NERConfig) -> NERConfigRecord:
-        return self._configs.create(self._prepare_runtime_config(config))
+    async def create_config(self, config: NERConfig) -> NERConfigRecord:
+        return await self._configs.create(self._prepare_runtime_config(config))
 
-    def list_configs(self) -> list[NERConfigRecord]:
-        return self._configs.list()
+    async def list_configs(self) -> list[NERConfigRecord]:
+        return await self._configs.list()
 
-    def get_config(self, config_id: str) -> NERConfigRecord:
-        prepared = self._configs.get(config_id)
+    async def get_config(self, config_id: str) -> NERConfigRecord:
+        prepared = await self._configs.get(config_id)
         return NERConfigRecord(id=config_id, config=prepared.config)
 
-    def put_config(self, config_id: str, config: NERConfig) -> NERConfigRecord:
+    async def put_config(self, config_id: str, config: NERConfig) -> NERConfigRecord:
         self._validate_config_id(config_id)
-        return self._configs.put(config_id, self._prepare_runtime_config(config))
+        return await self._configs.put(config_id, self._prepare_runtime_config(config))
 
-    def patch_config(self, config_id: str, patch: NERConfigPatch) -> NERConfigRecord:
+    async def patch_config(self, config_id: str, patch: NERConfigPatch) -> NERConfigRecord:
         self._validate_config_id(config_id)
-        current = self._configs.get(config_id).config
+        current = (await self._configs.get(config_id)).config
         data = current.model_dump()
         data.update(patch.model_dump(exclude_unset=True))
         try:
             config = NERConfig.model_validate(data)
         except ValidationError as e:
             raise ValueError(str(e)) from e
-        return self._configs.put(config_id, self._prepare_runtime_config(config))
+        return await self._configs.put(config_id, self._prepare_runtime_config(config))
 
-    def delete_config(self, config_id: str) -> None:
+    async def delete_config(self, config_id: str) -> None:
         self._validate_config_id(config_id)
-        self._configs.delete(config_id)
+        await self._configs.delete(config_id)
 
     async def extract(self, request: ExtractRequest) -> ExtractResponse:
         self._validate_request(request)
-        prepared = self._resolve_config(request)
+        prepared = await self._resolve_config(request)
         config_key = self._cache_key(prepared)
         cached = self._cache.get(request.text, config_key) if self._cache is not None else None
         if cached is not None:
@@ -119,10 +121,10 @@ class NerService:
     async def aclose(self) -> None:
         await self._provider.aclose()
 
-    def _resolve_config(self, request: ExtractRequest) -> PreparedNERConfig:
+    async def _resolve_config(self, request: ExtractRequest) -> PreparedNERConfig:
         if request.config_id is not None:
             self._validate_config_id(request.config_id)
-            return self._configs.get(request.config_id)
+            return await self._configs.get(request.config_id)
         assert request.config is not None
         return prepare_config(self._prepare_runtime_config(request.config))
 

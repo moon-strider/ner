@@ -79,17 +79,17 @@ def test_rejects_empty_description() -> None:
 
 async def test_service_rejects_text_over_runtime_limit() -> None:
     service = NerService(FakeProvider(), limits=RuntimeLimits(max_text_length=3))
-    record = service.create_config(_config())
+    record = await service.create_config(_config())
 
     with pytest.raises(ValueError, match="text length"):
         await service.extract(ExtractRequest(text="xxxx", config_id=record.id))
 
 
-def test_service_rejects_too_many_labels_over_runtime_limit() -> None:
+async def test_service_rejects_too_many_labels_over_runtime_limit() -> None:
     service = NerService(FakeProvider(), limits=RuntimeLimits(max_labels=1))
     many = [EntityLabel(name=f"L{i}", description="d") for i in range(51)]
     with pytest.raises(ValueError, match="labels length"):
-        service.create_config(NERConfig(labels=many))
+        await service.create_config(NERConfig(labels=many))
 
 
 def test_rejects_invalid_retries() -> None:

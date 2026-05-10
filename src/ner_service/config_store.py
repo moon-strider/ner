@@ -6,14 +6,13 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import ValidationError
-
 from ner_service.schema_builder import (
     build_ner_json_schema,
     build_response_format,
     build_system_prompt,
 )
-from ner_service.schemas import NERConfig, NERConfigPatch, NERConfigRecord
+from ner_service.schemas import NERConfig, NERConfigRecord
+from ner_service.stores import ConfigStoreBackend, MemoryStore
 
 
 class ConfigNotFoundError(Exception):
@@ -35,50 +34,39 @@ class PreparedNERConfig:
 
 
 class ConfigStore:
-    def __init__(self) -> None:
-        self._items: dict[str, PreparedNERConfig] = {}
+    def __init__(self, backend: ConfigStoreBackend | None = None) -> None:
+        self._backend = backend or MemoryStore()
 
-    def create(self, config: NERConfig) -> NERConfigRecord:
+    async def create(self, config: NERConfig) -> NERConfigRecord:
         config_id = str(uuid.uuid4())
         prepared = prepare_config(config, config_id=config_id)
-        self._items[config_id] = prepared
+        await self._backend.set(config_id, prepared.config.model_dump(mode="json"))
         return NERConfigRecord(id=config_id, config=prepared.config)
 
-    def list(self) -> list[NERConfigRecord]:
+    async def list(self) -> list[NERConfigRecord]:
+        items = await self._backend.list()
         return [
-            NERConfigRecord(id=config_id, config=prepared.config)
-            for config_id, prepared in self._items.items()
+            NERConfigRecord(id=item.id, config=NERConfig.model_validate(item.data))
+            for item in items
         ]
 
-    def get(self, config_id: str) -> PreparedNERConfig:
-        try:
-            return self._items[config_id]
-        except KeyError as e:
-            raise ConfigNotFoundError(config_id) from e
+    async def get(self, config_id: str) -> PreparedNERConfig:
+        data = await self._backend.get(config_id)
+        if data is None:
+            raise ConfigNotFoundError(config_id)
+        return prepare_config(NERConfig.model_validate(data), config_id=config_id)
 
-    def put(self, config_id: str, config: NERConfig) -> NERConfigRecord:
-        if config_id not in self._items:
+    async def put(self, config_id: str, config: NERConfig) -> NERConfigRecord:
+        if await self._backend.get(config_id) is None:
             raise ConfigNotFoundError(config_id)
         prepared = prepare_config(config, config_id=config_id)
-        self._items[config_id] = prepared
+        await self._backend.set(config_id, prepared.config.model_dump(mode="json"))
         return NERConfigRecord(id=config_id, config=prepared.config)
 
-    def patch(self, config_id: str, patch: NERConfigPatch) -> NERConfigRecord:
-        current = self.get(config_id).config
-        data = current.model_dump()
-        data.update(patch.model_dump(exclude_unset=True))
-        try:
-            config = NERConfig.model_validate(data)
-        except ValidationError as e:
-            raise ValueError(str(e)) from e
-        prepared = prepare_config(config, config_id=config_id)
-        self._items[config_id] = prepared
-        return NERConfigRecord(id=config_id, config=prepared.config)
-
-    def delete(self, config_id: str) -> None:
-        if config_id not in self._items:
+    async def delete(self, config_id: str) -> None:
+        if await self._backend.get(config_id) is None:
             raise ConfigNotFoundError(config_id)
-        del self._items[config_id]
+        await self._backend.delete(config_id)
 
 
 def prepare_config(config: NERConfig, *, config_id: str | None = None) -> PreparedNERConfig:

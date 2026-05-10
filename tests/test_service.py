@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from ner_service.cache import MemoryCache, ResultCache
 from ner_service.config_store import ConfigNotFoundError, PromptTemplateError
 from ner_service.schemas import EntityLabel, ExtractRequest, NERConfig, RawEntities, RawEntity
 from ner_service.service import NerService
+from ner_service.stores import SQLiteStore
 
 
 class FakeProvider:
@@ -50,6 +53,12 @@ def _config(**kwargs) -> NERConfig:
     return NERConfig(labels=_labels(), **kwargs)
 
 
+def _has_aiosqlite() -> bool:
+    import importlib.util
+
+    return importlib.util.find_spec("aiosqlite") is not None
+
+
 async def test_extract_uses_cache_for_duplicate_inline_requests() -> None:
     provider = FakeProvider()
     service = NerService(provider, cache=ResultCache(MemoryCache(), ttl=600))
@@ -68,7 +77,7 @@ async def test_extract_uses_cache_for_duplicate_inline_requests() -> None:
 async def test_extract_with_stored_config_returns_dictionary_entities() -> None:
     provider = FakeProvider()
     service = NerService(provider, default_model="default-model", max_tokens=777)
-    record = service.create_config(_config(reasoning_effort="low"))
+    record = await service.create_config(_config(reasoning_effort="low"))
 
     response = await service.extract(
         ExtractRequest(text="Tim Cook visited Berlin.", config_id=record.id)
@@ -140,7 +149,7 @@ async def test_case_insensitive_dictionary_canonicalizes_input_casing() -> None:
 async def test_prompt_template_renders_cfg_schema_and_payload() -> None:
     provider = FakeProvider()
     service = NerService(provider)
-    record = service.create_config(
+    record = await service.create_config(
         _config(system_prompt="schema={cfg.schema}; model={cfg.model}; n={payload.number}; {{ok}}")
     )
 
@@ -161,29 +170,51 @@ async def test_prompt_template_renders_cfg_schema_and_payload() -> None:
 
 async def test_prompt_template_missing_payload_value_raises() -> None:
     service = NerService(FakeProvider())
-    record = service.create_config(_config(system_prompt="n={payload.number}"))
+    record = await service.create_config(_config(system_prompt="n={payload.number}"))
 
     with pytest.raises(PromptTemplateError, match="missing"):
         await service.extract(ExtractRequest(text="Tim Cook", config_id=record.id))
 
 
-def test_config_store_crud() -> None:
+async def test_config_store_crud() -> None:
     service = NerService(FakeProvider())
-    created = service.create_config(_config(model="m1"))
+    created = await service.create_config(_config(model="m1"))
 
-    assert service.get_config(created.id).config.model == "m1"
-    assert service.list_configs()[0].id == created.id
+    assert (await service.get_config(created.id)).config.model == "m1"
+    assert (await service.list_configs())[0].id == created.id
 
-    replaced = service.put_config(created.id, _config(model="m2"))
+    replaced = await service.put_config(created.id, _config(model="m2"))
     assert replaced.config.model == "m2"
 
-    patched = service.patch_config(created.id, _config_patch({"max_tokens": 123}))
+    patched = await service.patch_config(created.id, _config_patch({"max_tokens": 123}))
     assert patched.config.model == "m2"
     assert patched.config.max_tokens == 123
 
-    service.delete_config(created.id)
+    await service.delete_config(created.id)
     with pytest.raises(ConfigNotFoundError):
-        service.get_config(created.id)
+        await service.get_config(created.id)
+
+
+@pytest.mark.skipif(not _has_aiosqlite(), reason="aiosqlite not installed")
+async def test_sqlite_config_store_crud(tmp_path: Path) -> None:
+    service = NerService(FakeProvider(), config_store=SQLiteStore(str(tmp_path / "configs.db")))
+    created = await service.create_config(_config(model="m1"))
+
+    fetched = await service.get_config(created.id)
+    listed = await service.list_configs()
+    assert fetched.config.model == "m1"
+    assert listed[0].id == created.id
+
+    replaced = await service.put_config(created.id, _config(model="m2"))
+    assert replaced.config.model == "m2"
+
+    patched = await service.patch_config(created.id, _config_patch({"max_tokens": 123}))
+    assert patched.config.model == "m2"
+    assert patched.config.max_tokens == 123
+
+    await service.delete_config(created.id)
+    with pytest.raises(ConfigNotFoundError):
+        await service.get_config(created.id)
 
 
 def _config_patch(data: dict):

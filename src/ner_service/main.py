@@ -21,6 +21,7 @@ from ner_service.providers.base import (
 from ner_service.providers.registry import get_provider
 from ner_service.routes import router as v1_router
 from ner_service.service import NerService
+from ner_service.stores import SQLiteStore
 
 logger = __import__("logging").getLogger(__name__)
 
@@ -42,6 +43,7 @@ async def lifespan(app: FastAPI) -> Any:
         max_tokens=settings.max_tokens,
         limits=settings.runtime_limits(),
         cache=ResultCache(MemoryCache()),
+        config_store=SQLiteStore(),
     )
     try:
         yield

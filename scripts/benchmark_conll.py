@@ -232,7 +232,7 @@ async def _run(
         max_tokens=settings.max_tokens,
         reasoning_effort=reasoning_effort,
     )
-    config_id = service.create_config(config).id
+    config_id = (await service.create_config(config)).id
     rows = _load_conll(limit, dataset_cache)
     print(
         f"Loaded {len(rows)} examples; mode={'offsets' if require_offsets else 'dictionary'}; "

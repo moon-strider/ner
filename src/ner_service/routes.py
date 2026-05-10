@@ -90,14 +90,14 @@ async def create_config(
     payload: NERConfig,
     svc: NerService = Depends(_get_service),
 ) -> NERConfigRecord:
-    return svc.create_config(payload)
+    return await svc.create_config(payload)
 
 
 @router.get("/configs", response_model=list[NERConfigRecord])
 async def list_configs(
     svc: NerService = Depends(_get_service),
 ) -> list[NERConfigRecord]:
-    return svc.list_configs()
+    return await svc.list_configs()
 
 
 @router.get("/configs/{config_id}", response_model=NERConfigRecord)
@@ -105,7 +105,7 @@ async def get_config(
     config_id: str,
     svc: NerService = Depends(_get_service),
 ) -> NERConfigRecord:
-    return svc.get_config(config_id)
+    return await svc.get_config(config_id)
 
 
 @router.put("/configs/{config_id}", response_model=NERConfigRecord)
@@ -114,7 +114,7 @@ async def put_config(
     payload: NERConfig,
     svc: NerService = Depends(_get_service),
 ) -> NERConfigRecord:
-    return svc.put_config(config_id, payload)
+    return await svc.put_config(config_id, payload)
 
 
 @router.patch("/configs/{config_id}", response_model=NERConfigRecord)
@@ -123,7 +123,7 @@ async def patch_config(
     payload: NERConfigPatch,
     svc: NerService = Depends(_get_service),
 ) -> NERConfigRecord:
-    return svc.patch_config(config_id, payload)
+    return await svc.patch_config(config_id, payload)
 
 
 @router.delete("/configs/{config_id}", status_code=204)
@@ -131,7 +131,7 @@ async def delete_config(
     config_id: str,
     svc: NerService = Depends(_get_service),
 ) -> Response:
-    svc.delete_config(config_id)
+    await svc.delete_config(config_id)
     return Response(status_code=204)
 
 

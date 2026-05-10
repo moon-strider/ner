@@ -1,7 +1,15 @@
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any, cast
+
+
+@dataclass(frozen=True)
+class StoredConfig:
+    id: str
+    data: dict[str, Any]
 
 
 class ConfigStoreBackend(ABC):
@@ -15,7 +23,29 @@ class ConfigStoreBackend(ABC):
     async def delete(self, config_id: str) -> None: ...
 
     @abstractmethod
-    async def list(self) -> list[dict[str, Any]]: ...
+    async def list(self) -> list[StoredConfig]: ...
+
+
+class MemoryStore(ConfigStoreBackend):
+    def __init__(self) -> None:
+        self._items: dict[str, dict[str, Any]] = {}
+
+    async def get(self, config_id: str) -> dict[str, Any] | None:
+        item = self._items.get(config_id)
+        if item is None:
+            return None
+        return dict(item)
+
+    async def set(self, config_id: str, config: dict[str, Any]) -> None:
+        self._items[config_id] = dict(config)
+
+    async def delete(self, config_id: str) -> None:
+        self._items.pop(config_id, None)
+
+    async def list(self) -> list[StoredConfig]:
+        return [
+            StoredConfig(id=config_id, data=dict(data)) for config_id, data in self._items.items()
+        ]
 
 
 class SQLiteStore(ConfigStoreBackend):
@@ -29,7 +59,9 @@ class SQLiteStore(ConfigStoreBackend):
         import aiosqlite
 
         async with aiosqlite.connect(self._path) as db:
-            await db.execute("CREATE TABLE IF NOT EXISTS configs (id TEXT PRIMARY KEY, data TEXT)")
+            await db.execute(
+                "CREATE TABLE IF NOT EXISTS configs (id TEXT PRIMARY KEY, data TEXT NOT NULL)"
+            )
             await db.commit()
         self._ready = True
 
@@ -39,25 +71,22 @@ class SQLiteStore(ConfigStoreBackend):
 
         async with (
             aiosqlite.connect(self._path) as db,
-            db.execute("SELECT data FROM configs WHERE id=?", (config_id,)) as cursor,
+            db.execute("SELECT data FROM configs WHERE id = ?", (config_id,)) as cursor,
         ):
             row = await cursor.fetchone()
-            if row:
-                import json
-
-                return cast(dict[str, Any], json.loads(row[0]))
+        if row is None:
             return None
+        return cast(dict[str, Any], json.loads(row[0]))
 
     async def set(self, config_id: str, config: dict[str, Any]) -> None:
         await self._init()
-        import json
-
         import aiosqlite
 
+        payload = json.dumps(config, ensure_ascii=False, separators=(",", ":"))
         async with aiosqlite.connect(self._path) as db:
             await db.execute(
                 "INSERT OR REPLACE INTO configs (id, data) VALUES (?, ?)",
-                (config_id, json.dumps(config)),
+                (config_id, payload),
             )
             await db.commit()
 
@@ -66,18 +95,19 @@ class SQLiteStore(ConfigStoreBackend):
         import aiosqlite
 
         async with aiosqlite.connect(self._path) as db:
-            await db.execute("DELETE FROM configs WHERE id=?", (config_id,))
+            await db.execute("DELETE FROM configs WHERE id = ?", (config_id,))
             await db.commit()
 
-    async def list(self) -> list[dict[str, Any]]:
+    async def list(self) -> list[StoredConfig]:
         await self._init()
-        import json
-
         import aiosqlite
 
         async with (
             aiosqlite.connect(self._path) as db,
-            db.execute("SELECT data FROM configs") as cursor,
+            db.execute("SELECT id, data FROM configs ORDER BY rowid ASC") as cursor,
         ):
             rows = await cursor.fetchall()
-            return [json.loads(r[0]) for r in rows]
+        return [
+            StoredConfig(id=cast(str, row[0]), data=cast(dict[str, Any], json.loads(row[1])))
+            for row in rows
+        ]
