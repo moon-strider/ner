@@ -25,7 +25,7 @@ clean:
     find . -name "*.pyo" -delete
 
 run:
-    uv run uvicorn ner_service.main:app --reload
+    uv run uvicorn ner_service.main:app --host 0.0.0.0 --port 8000
 
 build:
     docker build -t ner-service .

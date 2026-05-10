@@ -11,13 +11,13 @@ HTTP NER (Named Entity Recognition) service powered by LLMs with structured outp
 ```bash
 cp .env.example .env
 uv sync --extra dev
-uv run uvicorn ner_service.main:app --reload
+uv run uvicorn ner_service.main:app --host 0.0.0.0 --port 8000
 ```
 
 Request:
 
 ```bash
-CONFIG_ID="$(curl -s -X POST http://localhost:8000/configs \
+CONFIG_ID="$(curl -s -X POST http://localhost:8000/v1/configs \
   -H 'Content-Type: application/json' \
   -d '{
     "labels": [
@@ -26,7 +26,7 @@ CONFIG_ID="$(curl -s -X POST http://localhost:8000/configs \
     ]
   }' | jq -r .id)"
 
-curl -s -X POST http://localhost:8000/extract \
+curl -s -X POST http://localhost:8000/v1/extract \
   -H 'Content-Type: application/json' \
   -d "{
     \"text\": \"Tim Cook visited Berlin last week.\",
@@ -57,16 +57,18 @@ Response:
 
 ## API
 
-- `GET /health` — liveness probe.
-- `GET /ready` — readiness probe; verifies service initialization without making an LLM call.
-- `GET /providers` — current provider and model.
-- `POST /configs` — create an in-memory NER config; returns `{id, config}`.
-- `GET /configs` — list configs.
-- `GET /configs/{id}` — get one config.
-- `PUT /configs/{id}` — replace one config.
-- `PATCH /configs/{id}` — partially update one config.
-- `DELETE /configs/{id}` — delete one config.
-- `POST /extract` — body: `{text, config_id?, config?, prompt_payload?}`. Exactly one of `config_id` or inline `config` is required. Returns `{data, meta}`.
+- `GET /v1/health` — liveness probe.
+- `GET /v1/ready` — readiness probe; verifies service initialization without making an LLM call.
+- `GET /v1/providers` — current provider and model.
+- `GET /metrics` — Prometheus metrics endpoint.
+- `POST /v1/configs` — create a persisted NER config; returns `{id, config}`.
+- `GET /v1/configs` — list configs.
+- `GET /v1/configs/{id}` — get one config.
+- `PUT /v1/configs/{id}` — replace one config.
+- `PATCH /v1/configs/{id}` — partially update one config.
+- `DELETE /v1/configs/{id}` — delete one config.
+- `POST /v1/extract` — body: `{text, config_id?, config?, prompt_payload?}`. Exactly one of `config_id` or inline `config` is required. Returns `{data, meta}`.
+- `POST /v1/batch/extract` — batch extraction for multiple items with per-item success/error envelopes.
 
 `NERConfig` fields:
 
@@ -83,7 +85,7 @@ Response:
 }
 ```
 
-Configs are stored only in process memory and are lost on service restart. Create a config once and reuse `config_id` for high-volume extraction to avoid resending labels, prompt, and schema on every request. Inline configs are still supported for one-off calls.
+Configs are stored in SQLite (`configs.db`) by default and survive service restarts. Create a config once and reuse `config_id` for high-volume extraction to avoid resending labels, prompt, and schema on every request. Inline configs are still supported for one-off calls.
 
 Set `require_offsets=true` to recover `start` / `end` through substring matching. Set `case_sensitive=false` to match model surfaces case-insensitively; returned entity text uses the source text casing when a match is found.
 
@@ -117,6 +119,10 @@ Environment variables (also read from `.env`):
 | `REQUEST_TIMEOUT_S` | `30` | Per-request upstream timeout. |
 | `TRANSPORT_RETRIES` | `2` | SDK/network retries for upstream transport failures. |
 | `MAX_TOKENS` | `1024` | Default `max_completion_tokens` passed to the provider. |
+| `OTEL_ENDPOINT` | — | OTLP HTTP trace export endpoint, e.g. `http://collector:4318/v1/traces`. |
+| `RATE_LIMIT_RPS` | `100` | Token-bucket refill rate for provider calls. |
+| `RATE_LIMIT_BURST` | `200` | Token-bucket burst capacity for provider calls. |
+| `PROVIDER_CONCURRENCY_LIMIT` | `50` | Max concurrent in-flight provider requests. |
 | `MAX_TEXT_LENGTH` | `32000` | Maximum input text length accepted by the service. |
 | `MAX_LABELS` | `50` | Maximum labels per NER config. |
 | `MAX_SYSTEM_PROMPT_LENGTH` | `20000` | Maximum custom `system_prompt` length. |
@@ -149,6 +155,8 @@ uv run pytest -m "not integration"
 CEREBRAS_API_KEY=... uv run pytest -m integration
 ```
 
+Tracing is initialized in-process. Do not use `--reload` when you need reliable OpenTelemetry spans; uvicorn reload mode is documented to break instrumentation.
+
 ### CoNLL-2003 benchmark
 
 ```bash
@@ -158,7 +166,7 @@ CEREBRAS_API_KEY=... uv run --extra dev python scripts/benchmark_conll.py --mode
 CEREBRAS_API_KEY=... uv run --extra dev python scripts/benchmark_conll.py --model gpt-oss-120b --reasoning-effort low --require-offsets --concurrency 40
 ```
 
-Default scoring is exact unique `(label, text)` pairs. `--require-offsets` scores exact `(label, start, end)` triples. The script creates one in-memory NER config and then extracts by `config_id`. It prints micro-P / micro-R / micro-F1, errors, token usage, total time, throughput, and avg/min/max per-example latency.
+Default scoring is exact unique `(label, text)` pairs. `--require-offsets` scores exact `(label, start, end)` triples. The script creates one persisted NER config and then extracts by `config_id`. It prints micro-P / micro-R / micro-F1, errors, token usage, total time, throughput, and avg/min/max per-example latency.
 
 The CoNLL-2003 `test` split is cached locally at `data/benchmarks/conll2003-test.jsonl` after the first load. Later runs reuse that file instead of downloading the dataset again.
 
@@ -181,6 +189,6 @@ Cost to run:
 ```bash
 docker build -t ner-service .
 docker run --rm -p 8000:8000 --env-file .env ner-service
-curl -fsS http://localhost:8000/health
-curl -fsS http://localhost:8000/ready
+curl -fsS http://localhost:8000/v1/health
+curl -fsS http://localhost:8000/v1/ready
 ```

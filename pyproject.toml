@@ -28,7 +28,6 @@ dev = [
     "mypy",
     "datasets",
 ]
-cerebras = ["cerebras-cloud-sdk"]
 
 [build-system]
 requires = ["hatchling"]
@@ -59,7 +58,6 @@ files = ["src"]
 
 [[tool.mypy.overrides]]
 module = [
-    "cerebras.*",
     "opentelemetry",
     "opentelemetry.exporter.*",
     "opentelemetry.instrumentation.*",
