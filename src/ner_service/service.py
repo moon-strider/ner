@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
+
 from pydantic import ValidationError
 
+from ner_service.cache import ResultCache
 from ner_service.config import RuntimeLimits
 from ner_service.config_store import (
     ConfigStore,
@@ -28,12 +31,14 @@ class NerService:
         default_model: str = "llama3.1-8b",
         max_tokens: int = 1024,
         limits: RuntimeLimits | None = None,
+        cache: ResultCache | None = None,
     ) -> None:
         self._provider = provider
         self._default_model = default_model
         self._max_tokens = max_tokens
         self._limits = limits or RuntimeLimits()
         self._configs = ConfigStore()
+        self._cache = cache
 
     @property
     def provider(self) -> NerProvider:
@@ -71,6 +76,10 @@ class NerService:
     async def extract(self, request: ExtractRequest) -> ExtractResponse:
         self._validate_request(request)
         prepared = self._resolve_config(request)
+        config_key = self._cache_key(prepared)
+        cached = self._cache.get(request.text, config_key) if self._cache is not None else None
+        if cached is not None:
+            return ExtractResponse.model_validate(cached)
         system_prompt = render_system_prompt(prepared, request.prompt_payload)
         raw = await self._provider.extract(
             request.text,
@@ -91,13 +100,20 @@ class NerService:
                 case_sensitive=config.case_sensitive,
             )
         )
-        return ExtractResponse(
+        response = ExtractResponse(
             entities=entities,
             model=config.model,
             provider=self._provider.name,
             usage=raw.usage,
             attempts=raw.attempts,
         )
+        if self._cache is not None:
+            self._cache.set(
+                request.text,
+                config_key,
+                response.model_dump(mode="json"),
+            )
+        return response
 
     async def aclose(self) -> None:
         await self._provider.aclose()
@@ -113,6 +129,10 @@ class NerService:
         config = self._apply_runtime_defaults(config)
         self._validate_config(config)
         return config
+
+    def _cache_key(self, prepared: PreparedNERConfig) -> str:
+        payload = prepared.config.model_dump(mode="json")
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
     def _apply_runtime_defaults(self, config: NERConfig) -> NERConfig:
         updates: dict[str, object] = {}

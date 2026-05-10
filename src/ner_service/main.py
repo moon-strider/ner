@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from ner_service.cache import MemoryCache, ResultCache
 from ner_service.config import Settings, get_settings
 from ner_service.config_store import ConfigNotFoundError, PromptTemplateError
 from ner_service.providers.base import (
@@ -40,6 +41,7 @@ async def lifespan(app: FastAPI) -> Any:
         default_model=settings.ner_model,
         max_tokens=settings.max_tokens,
         limits=settings.runtime_limits(),
+        cache=ResultCache(MemoryCache()),
     )
     try:
         yield

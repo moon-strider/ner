@@ -40,13 +40,8 @@ class MemoryCache(CacheBackend):
         self._expires.pop(key, None)
 
 
-def _make_key(text: str, config_id: str | None, config_hash: str | None) -> str:
-    parts = [text]
-    if config_id:
-        parts.append(config_id)
-    elif config_hash:
-        parts.append(config_hash)
-    raw = json.dumps(parts, ensure_ascii=False, separators=(",", ":"))
+def _make_key(text: str, config_key: str) -> str:
+    raw = json.dumps([text, config_key], ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
@@ -55,23 +50,12 @@ class ResultCache:
         self._backend = backend
         self._ttl = ttl
 
-    def get(
-        self,
-        text: str,
-        config_id: str | None = None,
-        config_hash: str | None = None,
-    ) -> dict[str, Any] | None:
+    def get(self, text: str, config_key: str) -> dict[str, Any] | None:
         if self._backend is None:
             return None
-        return self._backend.get(_make_key(text, config_id, config_hash))
+        return self._backend.get(_make_key(text, config_key))
 
-    def set(
-        self,
-        text: str,
-        result: dict[str, Any],
-        config_id: str | None = None,
-        config_hash: str | None = None,
-    ) -> None:
+    def set(self, text: str, config_key: str, result: dict[str, Any]) -> None:
         if self._backend is None:
             return
-        self._backend.set(_make_key(text, config_id, config_hash), result, self._ttl)
+        self._backend.set(_make_key(text, config_key), result, self._ttl)

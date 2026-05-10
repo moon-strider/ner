@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from ner_service.cache import MemoryCache, ResultCache
 from ner_service.config_store import ConfigNotFoundError, PromptTemplateError
 from ner_service.schemas import EntityLabel, ExtractRequest, NERConfig, RawEntities, RawEntity
 from ner_service.service import NerService
@@ -47,6 +48,21 @@ def _labels() -> list[EntityLabel]:
 
 def _config(**kwargs) -> NERConfig:
     return NERConfig(labels=_labels(), **kwargs)
+
+
+async def test_extract_uses_cache_for_duplicate_inline_requests() -> None:
+    provider = FakeProvider()
+    service = NerService(provider, cache=ResultCache(MemoryCache(), ttl=600))
+    request = ExtractRequest(text="Tim Cook visited Berlin.", config=_config())
+
+    first = await service.extract(request)
+    second = await service.extract(request)
+
+    assert [(e.text, e.label) for e in first.entities] == [
+        (e.text, e.label) for e in second.entities
+    ]
+    assert first.usage == second.usage
+    assert len(provider.calls) == 1
 
 
 async def test_extract_with_stored_config_returns_dictionary_entities() -> None:
