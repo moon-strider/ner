@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 
 from ner_service.config import Settings, get_settings
 from ner_service.config_store import ConfigNotFoundError, PromptTemplateError
+from ner_service.metrics import MetricsCollector, extraction_timer
 from ner_service.providers.base import (
     ProviderAuthError,
     ProviderBadRequestError,
@@ -158,10 +159,34 @@ def _register_routes(app: FastAPI) -> None:
         payload: ExtractRequest,
         service: NerService = Depends(_get_service),
     ) -> ExtractEnvelope:
-        started = time.perf_counter()
-        response = await service.extract(payload)
-        latency_ms = (time.perf_counter() - started) * 1000
-        return _extract_envelope(response, request_id=_request_id(request), latency_ms=latency_ms)
+        metrics = MetricsCollector()
+        with extraction_timer() as timer:
+            try:
+                response = await service.extract(payload)
+                metrics.record_attempt(
+                    provider=service.provider.name,
+                    model=response.model,
+                    duration_ms=timer[0],
+                    success=True,
+                )
+                metrics.record_tokens(
+                    provider=service.provider.name,
+                    model=response.model,
+                    usage=response.usage,
+                )
+            except Exception as exc:
+                metrics.record_attempt(
+                    provider=service.provider.name,
+                    model=service.provider.model,
+                    duration_ms=timer[0],
+                    success=False,
+                )
+                error_type = exc.__class__.__name__
+                metrics.record_error(provider=service.provider.name, error_type=error_type)
+                raise
+        return _extract_envelope(
+            response, request_id=_request_id(request), latency_ms=timer[0]
+        )
 
 
 def _register_middleware(app: FastAPI) -> None:
