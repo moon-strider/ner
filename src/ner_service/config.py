@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     vllm_base_url: str | None = None
 
     max_tokens: int = Field(default=1024, gt=0)
+    rate_limit_rps: float = Field(default=100.0, gt=0.0)
+    rate_limit_burst: int = Field(default=200, gt=0)
+    provider_concurrency_limit: int = Field(default=50, gt=0)
     max_text_length: int = Field(default=32_000, gt=0)
     max_labels: int = Field(default=50, gt=0)
     max_system_prompt_length: int = Field(default=20_000, gt=0)

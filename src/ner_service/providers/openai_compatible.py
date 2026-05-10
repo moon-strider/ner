@@ -20,6 +20,7 @@ from ner_service.providers.base import (
     ProviderRateLimitError,
     ProviderUpstreamError,
 )
+from ner_service.rate_limiter import RateLimiter
 from ner_service.schemas import RawEntities, RawEntity
 
 
@@ -157,6 +158,7 @@ class OpenAICompatibleProvider:
         max_retries: int = 2,
         provider_name: str = "openai_compatible",
         circuit_breaker: CircuitBreaker | None = None,
+        rate_limiter: RateLimiter | None = None,
     ) -> None:
         self.model = model
         self.name = provider_name
@@ -166,6 +168,7 @@ class OpenAICompatibleProvider:
         self._base_url = base_url.rstrip("/")
         self._client: httpx.AsyncClient | None = None
         self._circuit = circuit_breaker or CircuitBreaker()
+        self._rate_limiter = rate_limiter
 
     @property
     def _http(self) -> httpx.AsyncClient:
@@ -277,6 +280,15 @@ class OpenAICompatibleProvider:
             self._client = None
 
     async def _post_with_status_check(self, body: dict[str, Any], model: str) -> httpx.Response:
+        if self._rate_limiter is None:
+            return await self._do_post_with_status_check(body, model)
+        await self._rate_limiter.acquire(self.name)
+        try:
+            return await self._do_post_with_status_check(body, model)
+        finally:
+            self._rate_limiter.release(self.name)
+
+    async def _do_post_with_status_check(self, body: dict[str, Any], model: str) -> httpx.Response:
         try:
             response = await self._http.post(
                 f"{self._base_url}/chat/completions",

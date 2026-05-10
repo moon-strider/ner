@@ -20,11 +20,26 @@ from ner_service.providers.openai_compatible import OpenAICompatibleProvider
 from ner_service.schemas import EntityLabel, NERConfig
 
 
+class TrackingRateLimiter:
+    def __init__(self) -> None:
+        self.acquire_calls: list[str] = []
+        self.release_calls: list[str] = []
+
+    async def acquire(self, provider: str) -> None:
+        self.acquire_calls.append(provider)
+
+    def release(self, provider: str) -> None:
+        self.release_calls.append(provider)
+
+
 def _labels() -> list[EntityLabel]:
     return [EntityLabel(name="PERSON", description="People")]
 
 
-def _provider() -> OpenAICompatibleProvider:
+def _provider(
+    *,
+    rate_limiter: TrackingRateLimiter | None = None,
+) -> OpenAICompatibleProvider:
     return OpenAICompatibleProvider(
         api_key="test-key",
         base_url="https://api.example.com/v1",
@@ -32,6 +47,7 @@ def _provider() -> OpenAICompatibleProvider:
         timeout=5.0,
         max_retries=1,
         provider_name="test",
+        rate_limiter=rate_limiter,
     )
 
 
@@ -39,6 +55,7 @@ def _provider_with_circuit(
     *,
     failure_threshold: int,
     recovery_timeout: float,
+    rate_limiter: TrackingRateLimiter | None = None,
 ) -> OpenAICompatibleProvider:
     return OpenAICompatibleProvider(
         api_key="test-key",
@@ -51,6 +68,7 @@ def _provider_with_circuit(
             failure_threshold=failure_threshold,
             recovery_timeout=recovery_timeout,
         ),
+        rate_limiter=rate_limiter,
     )
 
 
@@ -63,6 +81,42 @@ def _completion_json(content: str, total_tokens: int = 10) -> dict[str, Any]:
             "total_tokens": total_tokens,
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_is_used_for_successful_requests(httpx_mock: Any) -> None:
+    rate_limiter = TrackingRateLimiter()
+    provider = _provider(rate_limiter=rate_limiter)
+    prepared = prepare_config(NERConfig(labels=_labels(), retries=1, max_tokens=1024))
+
+    httpx_mock.add_response(
+        url="https://api.example.com/v1/chat/completions",
+        json=_completion_json('{"entities":[{"text":"Tim Cook","label":"PERSON"}]}', 10),
+    )
+
+    await provider.extract("Tim Cook", prepared=prepared, system_prompt="Extract.")
+
+    assert rate_limiter.acquire_calls == ["test"]
+    assert rate_limiter.release_calls == ["test"]
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_release_runs_after_provider_error(httpx_mock: Any) -> None:
+    rate_limiter = TrackingRateLimiter()
+    provider = _provider(rate_limiter=rate_limiter)
+    prepared = prepare_config(NERConfig(labels=_labels(), retries=1, max_tokens=1024))
+
+    httpx_mock.add_response(
+        url="https://api.example.com/v1/chat/completions",
+        status_code=503,
+        json={"error": {"message": "overloaded"}},
+    )
+
+    with pytest.raises(ProviderUpstreamError, match="overloaded"):
+        await provider.extract("Tim Cook", prepared=prepared, system_prompt="Extract.")
+
+    assert rate_limiter.acquire_calls == ["test"]
+    assert rate_limiter.release_calls == ["test"]
 
 
 @pytest.mark.asyncio

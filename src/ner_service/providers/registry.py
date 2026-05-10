@@ -5,6 +5,15 @@ from collections.abc import Callable
 from ner_service.config import Settings
 from ner_service.providers.base import NerProvider
 from ner_service.providers.openai_compatible import OpenAICompatibleProvider
+from ner_service.rate_limiter import RateLimiter
+
+
+def _rate_limiter(settings: Settings) -> RateLimiter:
+    return RateLimiter(
+        rate_per_second=settings.rate_limit_rps,
+        burst=settings.rate_limit_burst,
+        provider_concurrency=settings.provider_concurrency_limit,
+    )
 
 
 def _openai_provider(settings: Settings) -> NerProvider:
@@ -21,6 +30,7 @@ def _openai_provider(settings: Settings) -> NerProvider:
         timeout=settings.request_timeout_s,
         max_retries=settings.transport_retries,
         provider_name="openai",
+        rate_limiter=_rate_limiter(settings),
     )
 
 
@@ -38,6 +48,7 @@ def _anthropic_provider(settings: Settings) -> NerProvider:
         timeout=settings.request_timeout_s,
         max_retries=settings.transport_retries,
         provider_name="anthropic",
+        rate_limiter=_rate_limiter(settings),
     )
 
 
@@ -55,6 +66,7 @@ def _cerebras_provider(settings: Settings) -> NerProvider:
         timeout=settings.request_timeout_s,
         max_retries=settings.transport_retries,
         provider_name="cerebras",
+        rate_limiter=_rate_limiter(settings),
     )
 
 
@@ -72,6 +84,7 @@ def _openrouter_provider(settings: Settings) -> NerProvider:
         timeout=settings.request_timeout_s,
         max_retries=settings.transport_retries,
         provider_name="openrouter",
+        rate_limiter=_rate_limiter(settings),
     )
 
 
@@ -87,6 +100,7 @@ def _vllm_provider(settings: Settings) -> NerProvider:
         timeout=settings.request_timeout_s,
         max_retries=settings.transport_retries,
         provider_name="vllm",
+        rate_limiter=_rate_limiter(settings),
     )
 
 
