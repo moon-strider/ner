@@ -3,8 +3,11 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
+from collections.abc import Awaitable, Callable
 from enum import Enum
-from typing import Any
+from typing import TypeVar
+
+T = TypeVar("T")
 
 
 class State(Enum):
@@ -34,7 +37,12 @@ class CircuitBreaker:
     def state(self) -> State:
         return self._state
 
-    async def call(self, coro: Any) -> Any:
+    async def call(
+        self,
+        operation: Callable[[], Awaitable[T]],
+        *,
+        is_failure: Callable[[Exception], bool] | None = None,
+    ) -> T:
         async with self._lock:
             await self._update_state()
             if self._state == State.OPEN:
@@ -46,9 +54,12 @@ class CircuitBreaker:
                 self._half_open_calls += 1
 
         try:
-            result = await coro
-        except Exception:
-            await self._record_failure()
+            result = await operation()
+        except Exception as e:
+            if is_failure is None or is_failure(e):
+                await self._record_failure()
+            else:
+                await self._record_success()
             raise
         else:
             await self._record_success()
@@ -77,8 +88,8 @@ class CircuitBreaker:
         async with self._lock:
             if self._state == State.HALF_OPEN:
                 self._state = State.CLOSED
-                self._failures.clear()
                 self._half_open_calls = 0
+            self._failures.clear()
 
 
 class CircuitBreakerOpen(Exception):

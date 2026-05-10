@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from functools import partial
 from typing import Any, cast
 
 import httpx
 from pydantic import ValidationError
 
+from ner_service.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
 from ner_service.config_store import PreparedNERConfig
+from ner_service.metrics import MetricsCollector
 from ner_service.providers.base import (
     ProviderAuthError,
     ProviderBadRequestError,
@@ -108,7 +111,9 @@ def _json_safe(value: Any) -> Any:
 
 
 def _raise_provider_error_from_response(
-    status_code: int, body: dict[str, Any], headers: dict[str, str] | None = None
+    status_code: int,
+    body: dict[str, Any],
+    headers: dict[str, str] | None = None,
 ) -> None:
     error = body.get("error", {})
     message = error.get("message", "provider error") if isinstance(error, dict) else str(body)
@@ -136,6 +141,10 @@ def _raise_provider_error_from_response(
     raise ProviderError(message, details=details)
 
 
+def _should_count_for_circuit_breaker(exc: Exception) -> bool:
+    return isinstance(exc, ProviderUpstreamError)
+
+
 class OpenAICompatibleProvider:
     name: str = "openai_compatible"
 
@@ -147,6 +156,7 @@ class OpenAICompatibleProvider:
         timeout: float = 30.0,
         max_retries: int = 2,
         provider_name: str = "openai_compatible",
+        circuit_breaker: CircuitBreaker | None = None,
     ) -> None:
         self.model = model
         self.name = provider_name
@@ -155,14 +165,16 @@ class OpenAICompatibleProvider:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._client: httpx.AsyncClient | None = None
+        self._circuit = circuit_breaker or CircuitBreaker()
 
     @property
     def _http(self) -> httpx.AsyncClient:
         if self._client is None:
             limits = httpx.Limits(max_connections=100, max_keepalive_connections=20)
+            transport = httpx.AsyncHTTPTransport(retries=self._max_retries, limits=limits)
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(self._timeout),
-                limits=limits,
+                transport=transport,
                 headers={"Authorization": f"Bearer {self._api_key}"},
             )
         return self._client
@@ -189,17 +201,29 @@ class OpenAICompatibleProvider:
                 reasoning_effort=config.reasoning_effort,
                 temperature=0.0,
             )
+            request = partial(self._post_with_status_check, body, config.model)
+
             try:
-                response = await self._http.post(
-                    f"{self._base_url}/chat/completions",
-                    json=body,
+                response = await self._circuit.call(
+                    request,
+                    is_failure=_should_count_for_circuit_breaker,
                 )
-            except httpx.TimeoutException as e:
-                raise ProviderUpstreamError(f"upstream timeout: {e}") from e
-            except httpx.ConnectError as e:
-                raise ProviderUpstreamError(f"connection error: {e}") from e
-            except httpx.HTTPError as e:
-                raise ProviderUpstreamError(f"upstream transport error: {e}") from e
+            except CircuitBreakerOpen as e:
+                MetricsCollector().record_circuit_breaker(
+                    provider=self.name,
+                    model=config.model,
+                    state="open",
+                )
+                raise ProviderUpstreamError(
+                    "circuit breaker open",
+                    details={
+                        "status_code": 503,
+                        "circuit_breaker": {
+                            "state": "open",
+                            "reason": str(e),
+                        },
+                    },
+                ) from e
 
             if response.status_code >= 400:
                 try:
@@ -212,7 +236,12 @@ class OpenAICompatibleProvider:
                     dict(response.headers),
                 )
 
-            completion = response.json()
+            try:
+                completion = response.json()
+            except ValueError as e:
+                raise ProviderError(f"invalid JSON from provider response: {e}") from e
+            if not isinstance(completion, dict):
+                raise ProviderError("provider response must be a JSON object")
             usage_total = _merge_usage(usage_total, _extract_usage(completion))
             choices = completion.get("choices", [])
             if not choices:
@@ -246,6 +275,36 @@ class OpenAICompatibleProvider:
         if self._client is not None:
             await self._client.aclose()
             self._client = None
+
+    async def _post_with_status_check(self, body: dict[str, Any], model: str) -> httpx.Response:
+        try:
+            response = await self._http.post(
+                f"{self._base_url}/chat/completions",
+                json=body,
+            )
+        except httpx.TimeoutException as e:
+            raise ProviderUpstreamError(f"upstream timeout: {e}") from e
+        except httpx.ConnectError as e:
+            raise ProviderUpstreamError(f"connection error: {e}") from e
+        except httpx.HTTPError as e:
+            raise ProviderUpstreamError(f"upstream transport error: {e}") from e
+
+        if response.status_code >= 500:
+            try:
+                err_body = response.json()
+            except Exception:
+                err_body = {"raw": response.text}
+            MetricsCollector().record_circuit_breaker(
+                provider=self.name,
+                model=model,
+                state="failure",
+            )
+            _raise_provider_error_from_response(
+                response.status_code,
+                err_body,
+                dict(response.headers),
+            )
+        return response
 
 
 def _merge_usage(total: dict[str, Any], usage: dict[str, Any] | None) -> dict[str, Any]:

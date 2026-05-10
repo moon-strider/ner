@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from ner_service.config import Settings
-from ner_service.metrics import MetricsCollector, extraction_timer
+from ner_service.metrics import MetricsCollector
 from ner_service.schemas import (
     ExtractEnvelope,
     ExtractRequest,
@@ -141,28 +141,33 @@ async def extract(
     svc: NerService = Depends(_get_service),
 ) -> ExtractEnvelope:
     metrics = MetricsCollector()
-    with extraction_timer() as timer:
-        try:
-            response = await svc.extract(payload)
-            metrics.record_attempt(
-                provider=svc.provider.name,
-                model=response.model,
-                duration_ms=timer[0],
-                success=True,
-            )
-            metrics.record_tokens(
-                provider=svc.provider.name,
-                model=response.model,
-                usage=response.usage,
-            )
-        except Exception as exc:
-            metrics.record_attempt(
-                provider=svc.provider.name,
-                model=svc.provider.model,
-                duration_ms=timer[0],
-                success=False,
-            )
-            error_type = exc.__class__.__name__
-            metrics.record_error(provider=svc.provider.name, error_type=error_type)
-            raise
-    return _extract_envelope(response, request_id=_request_id(request), latency_ms=timer[0])
+    import time
+
+    started = time.perf_counter()
+    try:
+        response = await svc.extract(payload)
+    except Exception as exc:
+        duration_ms = (time.perf_counter() - started) * 1000
+        metrics.record_attempt(
+            provider=svc.provider.name,
+            model=svc.provider.model,
+            duration_ms=duration_ms,
+            success=False,
+        )
+        error_type = exc.__class__.__name__
+        metrics.record_error(provider=svc.provider.name, error_type=error_type)
+        raise
+
+    duration_ms = (time.perf_counter() - started) * 1000
+    metrics.record_attempt(
+        provider=svc.provider.name,
+        model=response.model,
+        duration_ms=duration_ms,
+        success=True,
+    )
+    metrics.record_tokens(
+        provider=svc.provider.name,
+        model=response.model,
+        usage=response.usage,
+    )
+    return _extract_envelope(response, request_id=_request_id(request), latency_ms=duration_ms)

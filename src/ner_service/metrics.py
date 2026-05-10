@@ -32,6 +32,12 @@ _tokens = Counter(
     ["provider", "model", "token_type"],
 )
 
+_circuit_breaker = Counter(
+    "ner_circuit_breaker_total",
+    "Circuit breaker events",
+    ["provider", "model", "state"],
+)
+
 
 class MetricsCollector:
     def record_attempt(self, provider: str, model: str, duration_ms: float, success: bool) -> None:
@@ -49,6 +55,9 @@ class MetricsCollector:
             _tokens.labels(provider=provider, model=model, token_type="prompt").inc(prompt)
         if completion := usage.get("completion_tokens"):
             _tokens.labels(provider=provider, model=model, token_type="completion").inc(completion)
+
+    def record_circuit_breaker(self, provider: str, model: str, state: str) -> None:
+        _circuit_breaker.labels(provider=provider, model=model, state=state).inc()
 
 
 @contextmanager

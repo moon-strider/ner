@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
 import pytest
 
+from ner_service.circuit_breaker import CircuitBreaker
 from ner_service.config_store import prepare_config
 from ner_service.providers.base import (
     ProviderAuthError,
@@ -30,6 +32,25 @@ def _provider() -> OpenAICompatibleProvider:
         timeout=5.0,
         max_retries=1,
         provider_name="test",
+    )
+
+
+def _provider_with_circuit(
+    *,
+    failure_threshold: int,
+    recovery_timeout: float,
+) -> OpenAICompatibleProvider:
+    return OpenAICompatibleProvider(
+        api_key="test-key",
+        base_url="https://api.example.com/v1",
+        model="test-model",
+        timeout=5.0,
+        max_retries=1,
+        provider_name="test",
+        circuit_breaker=CircuitBreaker(
+            failure_threshold=failure_threshold,
+            recovery_timeout=recovery_timeout,
+        ),
     )
 
 
@@ -223,3 +244,107 @@ async def test_400_raises_provider_bad_request_error(httpx_mock: Any) -> None:
 
     with pytest.raises(ProviderBadRequestError):
         await provider.extract("Tim Cook", prepared=prepared, system_prompt="Extract.")
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_opens_after_consecutive_transport_failures(httpx_mock: Any) -> None:
+    provider = _provider_with_circuit(failure_threshold=2, recovery_timeout=60.0)
+    prepared = prepare_config(NERConfig(labels=_labels(), retries=1, max_tokens=1024))
+
+    httpx_mock.add_exception(
+        url="https://api.example.com/v1/chat/completions",
+        exception=httpx.ConnectError("boom"),
+    )
+    httpx_mock.add_exception(
+        url="https://api.example.com/v1/chat/completions",
+        exception=httpx.ConnectError("boom"),
+    )
+
+    with pytest.raises(ProviderUpstreamError, match="connection error"):
+        await provider.extract("Tim Cook", prepared=prepared, system_prompt="Extract.")
+    with pytest.raises(ProviderUpstreamError, match="connection error"):
+        await provider.extract("Tim Cook", prepared=prepared, system_prompt="Extract.")
+
+    with pytest.raises(ProviderUpstreamError, match="circuit breaker open") as exc_info:
+        await provider.extract("Tim Cook", prepared=prepared, system_prompt="Extract.")
+
+    assert exc_info.value.details["status_code"] == 503
+    assert exc_info.value.details["circuit_breaker"]["state"] == "open"
+    assert "circuit breaker" in exc_info.value.details["circuit_breaker"]["reason"]
+    assert len(httpx_mock.get_requests()) == 2
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_recovers_after_timeout(httpx_mock: Any) -> None:
+    provider = _provider_with_circuit(failure_threshold=1, recovery_timeout=0.05)
+    prepared = prepare_config(NERConfig(labels=_labels(), retries=1, max_tokens=1024))
+
+    httpx_mock.add_exception(
+        url="https://api.example.com/v1/chat/completions",
+        exception=httpx.ConnectError("boom"),
+    )
+    httpx_mock.add_response(
+        url="https://api.example.com/v1/chat/completions",
+        json=_completion_json('{"entities":[{"text":"Tim Cook","label":"PERSON"}]}', 10),
+    )
+
+    with pytest.raises(ProviderUpstreamError, match="connection error"):
+        await provider.extract("Tim Cook", prepared=prepared, system_prompt="Extract.")
+
+    await asyncio.sleep(0.1)
+
+    result = await provider.extract("Tim Cook", prepared=prepared, system_prompt="Extract.")
+
+    assert [(e.text, e.label) for e in result.entities] == [("Tim Cook", "PERSON")]
+    assert len(httpx_mock.get_requests()) == 2
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_opens_after_consecutive_5xx_responses(httpx_mock: Any) -> None:
+    provider = _provider_with_circuit(failure_threshold=2, recovery_timeout=60.0)
+    prepared = prepare_config(NERConfig(labels=_labels(), retries=1, max_tokens=1024))
+
+    httpx_mock.add_response(
+        url="https://api.example.com/v1/chat/completions",
+        status_code=503,
+        json={"error": {"message": "overloaded"}},
+    )
+    httpx_mock.add_response(
+        url="https://api.example.com/v1/chat/completions",
+        status_code=503,
+        json={"error": {"message": "overloaded"}},
+    )
+
+    with pytest.raises(ProviderUpstreamError, match="overloaded"):
+        await provider.extract("Tim Cook", prepared=prepared, system_prompt="Extract.")
+    with pytest.raises(ProviderUpstreamError, match="overloaded"):
+        await provider.extract("Tim Cook", prepared=prepared, system_prompt="Extract.")
+
+    with pytest.raises(ProviderUpstreamError, match="circuit breaker open"):
+        await provider.extract("Tim Cook", prepared=prepared, system_prompt="Extract.")
+
+    assert len(httpx_mock.get_requests()) == 2
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_does_not_open_after_repeated_bad_requests(httpx_mock: Any) -> None:
+    provider = _provider_with_circuit(failure_threshold=1, recovery_timeout=60.0)
+    prepared = prepare_config(NERConfig(labels=_labels(), retries=1, max_tokens=1024))
+
+    httpx_mock.add_response(
+        url="https://api.example.com/v1/chat/completions",
+        status_code=400,
+        json={"error": {"message": "Bad request"}},
+    )
+    httpx_mock.add_response(
+        url="https://api.example.com/v1/chat/completions",
+        status_code=400,
+        json={"error": {"message": "Bad request"}},
+    )
+
+    with pytest.raises(ProviderBadRequestError):
+        await provider.extract("Tim Cook", prepared=prepared, system_prompt="Extract.")
+    with pytest.raises(ProviderBadRequestError):
+        await provider.extract("Tim Cook", prepared=prepared, system_prompt="Extract.")
+
+    assert len(httpx_mock.get_requests()) == 2

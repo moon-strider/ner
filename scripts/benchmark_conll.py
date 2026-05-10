@@ -308,7 +308,7 @@ def _merge_usage(total: dict[str, Any], usage: dict[str, Any] | None) -> None:
     if usage is None:
         return
     for key, value in usage.items():
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             total[key] = total.get(key, 0) + value
         elif isinstance(value, dict):
             existing = total.setdefault(key, {})
