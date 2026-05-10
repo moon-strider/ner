@@ -21,11 +21,23 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    cerebras_api_key: SecretStr | None = None
     ner_provider: str = Field(default="cerebras")
     ner_model: str = Field(default="llama3.1-8b")
     request_timeout_s: float = Field(default=30.0, gt=0.0)
     transport_retries: int = Field(default=2, ge=0)
+
+    cerebras_api_key: SecretStr | None = None
+    openai_api_key: SecretStr | None = None
+    anthropic_api_key: SecretStr | None = None
+    openrouter_api_key: SecretStr | None = None
+    vllm_api_key: str = Field(default="not-needed")
+
+    cerebras_base_url: str | None = None
+    openai_base_url: str | None = None
+    anthropic_base_url: str | None = None
+    openrouter_base_url: str | None = None
+    vllm_base_url: str | None = None
+
     max_tokens: int = Field(default=1024, gt=0)
     max_text_length: int = Field(default=32_000, gt=0)
     max_labels: int = Field(default=50, gt=0)
