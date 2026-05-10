@@ -1,0 +1,25 @@
+[project]
+name = "ner-client"
+version = "1.0.0"
+description = "Typed Python client for NER Service"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "attrs==26.1.0",
+    "httpx==0.28.1",
+    "python-dateutil==2.9.0.post0",
+]
+
+[tool.uv.build-backend]
+module-name = "ner_client"
+module-root = ""
+
+[build-system]
+requires = ["uv_build==0.11.11"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["F", "I", "UP"]

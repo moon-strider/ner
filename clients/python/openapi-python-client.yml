@@ -1,0 +1,7 @@
+project_name_override: ner-client
+package_name_override: ner_client
+package_version_override: 1.0.0
+use_path_prefixes_for_title_model_names: false
+post_hooks:
+  - ruff check . --fix-only
+  - ruff format .

@@ -207,3 +207,13 @@ docker compose ps
 - Provisioned dashboard UID: `ner-service-overview`
 
 The compose stack scrapes the service `/metrics` endpoint every 15 seconds and provisions a Grafana dashboard with request rate, provider errors, token volume, and p95 latency panels.
+
+## Python client
+
+```bash
+just generate-client
+uv add ./clients/python/ner-client
+```
+
+Generated package path: `clients/python/ner-client`.
+The package exposes sync and async clients for `/v1/configs`, `/v1/extract`, and `/v1/batch/extract`.

@@ -30,6 +30,9 @@ run:
 build:
     docker build -t ner-service .
 
+generate-client:
+    uv run python scripts/generate_client.py
+
 observe-up:
     docker compose up -d --build
 
