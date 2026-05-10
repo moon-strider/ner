@@ -18,6 +18,9 @@ check: lint fmt typecheck test
 benchmark:
     uv run --extra dev python scripts/benchmark_conll.py --model llama3.1-8b --concurrency 40
 
+profile:
+    uv run python scripts/profile.py --provider cerebras --model llama3.1-8b --texts-count 4 --concurrency 2 --text-lengths 64,256,1024
+
 clean:
     rm -rf .venv/ __pycache__/ *.egg-info/ dist/ build/
     rm -rf .pytest_cache/ .mypy_cache/ .ruff_cache/

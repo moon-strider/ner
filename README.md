@@ -217,3 +217,11 @@ uv add ./clients/python/ner-client
 
 Generated package path: `clients/python/ner-client`.
 The package exposes sync and async clients for `/v1/configs`, `/v1/extract`, and `/v1/batch/extract`.
+
+## Profiling
+
+```bash
+uv run python scripts/profile.py --provider cerebras --model llama3.1-8b --texts-count 4 --concurrency 2 --text-lengths 64,256,1024
+```
+
+The profiler emits JSON with per-length p50/p95/p99 latency, throughput, error counts, and aggregated token usage. Add `--output path/to/report.json` to persist the report for CI artifacts.
