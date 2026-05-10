@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from ner_service.cache import MemoryCache, ResultCache
 from ner_service.config import Settings, get_settings
 from ner_service.config_store import ConfigNotFoundError, PromptTemplateError
+from ner_service.metrics import setup_metrics
 from ner_service.providers.base import (
     ProviderAuthError,
     ProviderBadRequestError,
@@ -64,6 +65,7 @@ def create_app(settings: Settings | None = None, service: NerService | None = No
         app.state.service = service
 
     app.include_router(v1_router, prefix="/v1")
+    setup_metrics(app)
     setup_tracing(app)
 
     _register_middleware(app)

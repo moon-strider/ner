@@ -202,3 +202,11 @@ def test_setup_tracing_with_endpoint_sets_provider() -> None:
 
     assert app.state.tracing_initialized is True
     assert app.state.tracer_provider is not None
+
+
+def test_metrics_endpoint_is_exposed() -> None:
+    with _client() as client:
+        response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert "ner_extraction_total" in response.text
