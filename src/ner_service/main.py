@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-import logging
-import time
-import uuid
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -13,7 +8,6 @@ from fastapi.responses import JSONResponse
 
 from ner_service.config import Settings, get_settings
 from ner_service.config_store import ConfigNotFoundError, PromptTemplateError
-from ner_service.metrics import MetricsCollector, extraction_timer
 from ner_service.providers.base import (
     ProviderAuthError,
     ProviderBadRequestError,
@@ -24,23 +18,13 @@ from ner_service.providers.base import (
     ProviderUpstreamError,
 )
 from ner_service.providers.registry import get_provider
-from ner_service.schemas import (
-    ExtractEnvelope,
-    ExtractRequest,
-    ExtractResponse,
-    ExtractResponseData,
-    NERConfig,
-    NERConfigPatch,
-    NERConfigRecord,
-    ResponseMeta,
-)
+from ner_service.routes import router as v1_router
 from ner_service.service import NerService
 
-logger = logging.getLogger(__name__)
+logger = __import__("logging").getLogger(__name__)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> Any:
     settings: Settings = app.state.settings if hasattr(app.state, "settings") else get_settings()
     app.state.settings = settings
     injected_service: NerService | None = getattr(app.state, "service", None)
@@ -73,126 +57,18 @@ def create_app(settings: Settings | None = None, service: NerService | None = No
         app.state.settings = settings
     if service is not None:
         app.state.service = service
-    _register_middleware(app)
 
-    _register_routes(app)
+    app.include_router(v1_router, prefix="/v1")
+
+    _register_middleware(app)
     _register_exception_handlers(app)
     return app
-
-
-def _get_service(request: Request) -> NerService:
-    service: NerService | None = getattr(request.app.state, "service", None)
-    if service is None:
-        raise HTTPException(status_code=503, detail="service not initialized")
-    return service
-
-
-def _register_routes(app: FastAPI) -> None:
-    @app.get("/health")
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
-
-    @app.get("/ready")
-    async def ready(request: Request) -> dict[str, str]:
-        service: NerService | None = getattr(request.app.state, "service", None)
-        settings: Settings | None = getattr(request.app.state, "settings", None)
-        if service is None or settings is None:
-            raise HTTPException(status_code=503, detail="service not initialized")
-        return {
-            "status": "ready",
-            "provider": service.provider.name,
-            "model": service.provider.model,
-        }
-
-    @app.get("/providers")
-    async def providers(request: Request) -> dict[str, Any]:
-        service = _get_service(request)
-        return {"provider": service.provider.name, "model": service.provider.model}
-
-    @app.post("/configs", response_model=NERConfigRecord)
-    async def create_config(
-        payload: NERConfig,
-        service: NerService = Depends(_get_service),
-    ) -> NERConfigRecord:
-        return service.create_config(payload)
-
-    @app.get("/configs", response_model=list[NERConfigRecord])
-    async def list_configs(
-        service: NerService = Depends(_get_service),
-    ) -> list[NERConfigRecord]:
-        return service.list_configs()
-
-    @app.get("/configs/{config_id}", response_model=NERConfigRecord)
-    async def get_config(
-        config_id: str,
-        service: NerService = Depends(_get_service),
-    ) -> NERConfigRecord:
-        return service.get_config(config_id)
-
-    @app.put("/configs/{config_id}", response_model=NERConfigRecord)
-    async def put_config(
-        config_id: str,
-        payload: NERConfig,
-        service: NerService = Depends(_get_service),
-    ) -> NERConfigRecord:
-        return service.put_config(config_id, payload)
-
-    @app.patch("/configs/{config_id}", response_model=NERConfigRecord)
-    async def patch_config(
-        config_id: str,
-        payload: NERConfigPatch,
-        service: NerService = Depends(_get_service),
-    ) -> NERConfigRecord:
-        return service.patch_config(config_id, payload)
-
-    @app.delete("/configs/{config_id}", status_code=204)
-    async def delete_config(
-        config_id: str,
-        service: NerService = Depends(_get_service),
-    ) -> Response:
-        service.delete_config(config_id)
-        return Response(status_code=204)
-
-    @app.post("/extract", response_model=ExtractEnvelope, response_model_exclude_none=True)
-    async def extract(
-        request: Request,
-        payload: ExtractRequest,
-        service: NerService = Depends(_get_service),
-    ) -> ExtractEnvelope:
-        metrics = MetricsCollector()
-        with extraction_timer() as timer:
-            try:
-                response = await service.extract(payload)
-                metrics.record_attempt(
-                    provider=service.provider.name,
-                    model=response.model,
-                    duration_ms=timer[0],
-                    success=True,
-                )
-                metrics.record_tokens(
-                    provider=service.provider.name,
-                    model=response.model,
-                    usage=response.usage,
-                )
-            except Exception as exc:
-                metrics.record_attempt(
-                    provider=service.provider.name,
-                    model=service.provider.model,
-                    duration_ms=timer[0],
-                    success=False,
-                )
-                error_type = exc.__class__.__name__
-                metrics.record_error(provider=service.provider.name, error_type=error_type)
-                raise
-        return _extract_envelope(
-            response, request_id=_request_id(request), latency_ms=timer[0]
-        )
 
 
 def _register_middleware(app: FastAPI) -> None:
     @app.middleware("http")
     async def request_id_middleware(request: Request, call_next: Any) -> Response:
-        request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+        request_id = request.headers.get("x-request-id") or str(__import__("uuid").uuid4())
         request.state.request_id = request_id
         response: Response = await call_next(request)
         response.headers["x-request-id"] = request_id
@@ -289,28 +165,6 @@ def _provider_response(
     )
 
 
-def _extract_envelope(
-    response: ExtractResponse,
-    *,
-    request_id: str,
-    latency_ms: float,
-) -> ExtractEnvelope:
-    return ExtractEnvelope(
-        data=ExtractResponseData(
-            entities=response.entities,
-            model=response.model,
-            provider=response.provider,
-            usage=response.usage,
-        ),
-        meta=ResponseMeta(
-            request_id=request_id,
-            latency_ms=latency_ms,
-            attempts=response.attempts,
-            warnings=response.warnings,
-        ),
-    )
-
-
 def _error_response(
     request: Request,
     status_code: int,
@@ -338,7 +192,7 @@ def _request_id(request: Request) -> str:
     value = getattr(request.state, "request_id", None)
     if isinstance(value, str) and value:
         return value
-    return str(uuid.uuid4())
+    return str(__import__("uuid").uuid4())
 
 
 def _validation_errors(exc: RequestValidationError) -> list[dict[str, Any]]:

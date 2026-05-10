@@ -45,7 +45,7 @@ def _client(
 
 def test_ready_returns_initialized_provider() -> None:
     with _client() as client:
-        response = client.get("/ready")
+        response = client.get("/v1/ready")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ready", "provider": "fake", "model": "fake-model"}
@@ -54,12 +54,12 @@ def test_ready_returns_initialized_provider() -> None:
 def test_extract_returns_success_envelope_with_request_id() -> None:
     with _client() as client:
         config_response = client.post(
-            "/configs",
+            "/v1/configs",
             json={"labels": [{"name": "PERSON", "description": "People"}]},
         )
         config_id = config_response.json()["id"]
         response = client.post(
-            "/extract",
+            "/v1/extract",
             headers={"x-request-id": "req-1"},
             json={"text": "Tim Cook visited Berlin.", "config_id": config_id},
         )
@@ -80,7 +80,7 @@ def test_extract_returns_success_envelope_with_request_id() -> None:
 def test_validation_errors_use_error_envelope() -> None:
     with _client(limits=RuntimeLimits(max_text_length=3)) as client:
         response = client.post(
-            "/extract",
+            "/v1/extract",
             headers={"x-request-id": "req-2"},
             json={"text": "too long", "config_id": "missing"},
         )
@@ -110,11 +110,11 @@ def test_provider_errors_use_redacted_error_envelope() -> None:
     )
     with _client(provider) as client:
         config_response = client.post(
-            "/configs",
+            "/v1/configs",
             json={"labels": [{"name": "PERSON", "description": "People"}]},
         )
         response = client.post(
-            "/extract",
+            "/v1/extract",
             headers={"x-request-id": "req-3"},
             json={"text": "Tim Cook", "config_id": config_response.json()["id"]},
         )
