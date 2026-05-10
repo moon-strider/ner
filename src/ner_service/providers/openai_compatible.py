@@ -21,7 +21,7 @@ from ner_service.providers.base import (
     ProviderUpstreamError,
 )
 from ner_service.rate_limiter import RateLimiter
-from ner_service.schemas import RawEntities, RawEntity
+from ner_service.schemas import FewShotExample, RawEntities, RawEntity
 
 
 def _build_messages(
@@ -29,11 +29,22 @@ def _build_messages(
     text: str,
     last_output: str | None,
     last_error: str | None,
+    few_shot_examples: list[FewShotExample] | None = None,
 ) -> list[dict[str, Any]]:
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": text},
-    ]
+    messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+    for example in few_shot_examples or []:
+        messages.append({"role": "user", "content": example.text})
+        messages.append(
+            {
+                "role": "assistant",
+                "content": json.dumps(
+                    {"entities": example.entities},
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+            }
+        )
+    messages.append({"role": "user", "content": text})
     if last_error is not None:
         messages.extend(
             [
@@ -195,7 +206,13 @@ class OpenAICompatibleProvider:
         last_error: str | None = None
 
         for attempt in range(1, config.retries + 1):
-            messages = _build_messages(system_prompt, text, last_output, last_error)
+            messages = _build_messages(
+                system_prompt,
+                text,
+                last_output,
+                last_error,
+                config.few_shot_examples,
+            )
             body = _build_request_body(
                 model=config.model,
                 messages=messages,

@@ -58,7 +58,7 @@ Response:
 ## API
 
 - `GET /v1/health` — liveness probe.
-- `GET /v1/ready` — readiness probe; verifies service initialization without making an LLM call.
+- `GET /v1/ready` — readiness probe; verifies service initialization and local config storage without making an LLM call.
 - `GET /v1/providers` — current provider and model.
 - `GET /metrics` — Prometheus metrics endpoint.
 - `POST /v1/configs` — create a persisted NER config; returns `{id, config}`.
@@ -81,7 +81,8 @@ Response:
   "retries": 3,
   "max_tokens": 1024,
   "reasoning_effort": null,
-  "system_prompt": null
+  "system_prompt": null,
+  "few_shot_examples": []
 }
 ```
 
@@ -107,6 +108,21 @@ follow schema strictly: {cfg.schema}; remember this number: {payload.number}
 
 Use `{{` and `}}` for literal braces.
 
+Few-shot examples are sent as user/assistant examples before the extraction text:
+
+```json
+{
+  "few_shot_examples": [
+    {
+      "text": "Ada Lovelace wrote notes.",
+      "entities": [{"text": "Ada Lovelace", "label": "PERSON"}]
+    }
+  ]
+}
+```
+
+Authentication is intentionally out of scope. Add auth in the embedding application or at the gateway layer if a deployment needs it.
+
 ## Configuration
 
 Environment variables (also read from `.env`):
@@ -114,7 +130,10 @@ Environment variables (also read from `.env`):
 | Variable | Default | Description |
 | --- | --- | --- |
 | `CEREBRAS_API_KEY` | — | Required when `NER_PROVIDER=cerebras`. |
-| `NER_PROVIDER` | `cerebras` | Provider id. |
+| `OPENAI_API_KEY` | — | Required when `NER_PROVIDER=openai`. |
+| `OPENROUTER_API_KEY` | — | Required when `NER_PROVIDER=openrouter`. |
+| `VLLM_API_KEY` | `not-needed` | Bearer token for OpenAI-compatible local vLLM endpoints. |
+| `NER_PROVIDER` | `cerebras` | Provider id: `cerebras`, `openai`, `openrouter`, or `vllm`. |
 | `NER_MODEL` | `llama3.1-8b` | Model identifier passed to the provider. |
 | `REQUEST_TIMEOUT_S` | `30` | Per-request upstream timeout. |
 | `TRANSPORT_RETRIES` | `2` | SDK/network retries for upstream transport failures. |
@@ -128,6 +147,15 @@ Environment variables (also read from `.env`):
 | `MAX_SYSTEM_PROMPT_LENGTH` | `20000` | Maximum custom `system_prompt` length. |
 | `MAX_LABEL_DESCRIPTION_LENGTH` | `500` | Maximum label description length. |
 | `MAX_CONFIG_ID_LENGTH` | `128` | Maximum config id length accepted by API paths and payloads. |
+| `CONFIG_DB_PATH` | `configs.db` | SQLite config database path. |
+| `CACHE_ENABLED` | `true` | Enable in-process extraction result cache. |
+| `CACHE_TTL_SECONDS` | `600` | Extraction result cache TTL. |
+| `CACHE_MAX_SIZE` | `10000` | Maximum in-process cache entries. |
+| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `5` | Consecutive upstream failures before opening provider circuit. |
+| `CIRCUIT_BREAKER_RECOVERY_TIMEOUT_S` | `30` | Seconds before trying a half-open provider call. |
+| `CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS` | `1` | Max test calls while circuit is half-open. |
+| `BATCH_CONCURRENCY` | `10` | Max concurrent items inside `/v1/batch/extract`. |
+| `TOKEN_PRICING_JSON` | — | Optional JSON model pricing map for estimated cost metrics. |
 
 `NERConfig.retries` controls model repair attempts when the provider returns invalid structured output. `TRANSPORT_RETRIES` controls SDK/network retries before the service receives a provider response.
 
@@ -206,7 +234,7 @@ docker compose ps
 - Provisioned Grafana datasource UID: `prometheus`
 - Provisioned dashboard UID: `ner-service-overview`
 
-The compose stack scrapes the service `/metrics` endpoint every 15 seconds and provisions a Grafana dashboard with request rate, provider errors, token volume, and p95 latency panels.
+The compose stack scrapes the service `/metrics` endpoint every 15 seconds and provisions a Grafana dashboard with request rate, provider errors, token volume, and p95 latency panels. Service metrics include extraction latency, provider errors, token counts, circuit breaker events, cache hit/miss counters, structured output retry counters, and optional estimated cost counters when `TOKEN_PRICING_JSON` is configured.
 
 ## Python client
 

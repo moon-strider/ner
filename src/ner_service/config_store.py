@@ -68,6 +68,9 @@ class ConfigStore:
             raise ConfigNotFoundError(config_id)
         await self._backend.delete(config_id)
 
+    async def healthcheck(self) -> dict[str, Any]:
+        return await self._backend.healthcheck()
+
 
 def prepare_config(config: NERConfig, *, config_id: str | None = None) -> PreparedNERConfig:
     schema = build_ner_json_schema(config.labels)

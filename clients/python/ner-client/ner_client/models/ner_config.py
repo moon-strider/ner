@@ -25,8 +25,6 @@ class NERConfig:
     reasoning_effort: None | str | Unset = UNSET
     system_prompt: None | str | Unset = UNSET
     few_shot_examples: list[FewShotExample] | Unset = UNSET
-    confidence: bool | Unset = False
-    output_format: str | Unset = "json"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -55,8 +53,6 @@ class NERConfig:
             for few_shot_examples_item_data in self.few_shot_examples:
                 few_shot_examples_item = few_shot_examples_item_data.to_dict()
                 few_shot_examples.append(few_shot_examples_item)
-        confidence = self.confidence
-        output_format = self.output_format
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({"labels": labels})
@@ -76,10 +72,6 @@ class NERConfig:
             field_dict["system_prompt"] = system_prompt
         if few_shot_examples is not UNSET:
             field_dict["few_shot_examples"] = few_shot_examples
-        if confidence is not UNSET:
-            field_dict["confidence"] = confidence
-        if output_format is not UNSET:
-            field_dict["output_format"] = output_format
         return field_dict
 
     @classmethod
@@ -123,8 +115,6 @@ class NERConfig:
             for few_shot_examples_item_data in _few_shot_examples:
                 few_shot_examples_item = FewShotExample.from_dict(few_shot_examples_item_data)
                 few_shot_examples.append(few_shot_examples_item)
-        confidence = d.pop("confidence", UNSET)
-        output_format = d.pop("output_format", UNSET)
         ner_config = cls(
             labels=labels,
             model=model,
@@ -135,8 +125,6 @@ class NERConfig:
             reasoning_effort=reasoning_effort,
             system_prompt=system_prompt,
             few_shot_examples=few_shot_examples,
-            confidence=confidence,
-            output_format=output_format,
         )
         ner_config.additional_properties = d
         return ner_config

@@ -198,6 +198,11 @@ async def test_config_store_crud() -> None:
 @pytest.mark.skipif(not _has_aiosqlite(), reason="aiosqlite not installed")
 async def test_sqlite_config_store_crud(tmp_path: Path) -> None:
     service = NerService(FakeProvider(), config_store=SQLiteStore(str(tmp_path / "configs.db")))
+    assert (await service.ready())["config_store"] == {
+        "backend": "sqlite",
+        "status": "ok",
+        "path": str(tmp_path / "configs.db"),
+    }
     created = await service.create_config(_config(model="m1"))
 
     fetched = await service.get_config(created.id)
@@ -221,3 +226,22 @@ def _config_patch(data: dict):
     from ner_service.schemas import NERConfigPatch
 
     return NERConfigPatch.model_validate(data)
+
+
+async def test_estimated_cost_metric_is_exposed() -> None:
+    from ner_service.config import TokenPricing
+
+    provider = FakeProvider()
+    provider.entities = [RawEntity(text="Tim Cook", label="PERSON")]
+    service = NerService(
+        provider,
+        token_pricing={"llama3.1-8b": TokenPricing(input_per_million=1.0, output_per_million=2.0)},
+    )
+
+    await service.extract(ExtractRequest(text="Tim Cook", config=_config()))
+
+    from prometheus_client import generate_latest
+
+    metrics = generate_latest().decode()
+    assert "ner_estimated_cost_usd_total" in metrics
+    assert "ner_cache_total" in metrics

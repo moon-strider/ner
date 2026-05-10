@@ -21,6 +21,7 @@ def test_accepts_valid_config_defaults() -> None:
     assert cfg.retries == 3
     assert cfg.max_tokens == 1024
     assert cfg.reasoning_effort is None
+    assert cfg.few_shot_examples == []
 
 
 def test_accepts_config_id_extract_request() -> None:
@@ -100,3 +101,16 @@ def test_rejects_invalid_retries() -> None:
 def test_rejects_invalid_max_tokens() -> None:
     with pytest.raises(ValidationError):
         NERConfig(labels=[EntityLabel(name="PERSON", description="people")], max_tokens=0)
+
+
+def test_settings_parse_token_pricing() -> None:
+    from ner_service.config import Settings
+
+    settings = Settings(
+        cerebras_api_key="test",
+        token_pricing_json='{"m":{"input_per_million":0.1,"output_per_million":0.2}}',
+    )
+
+    pricing = settings.token_pricing()
+    assert pricing["m"].input_per_million == 0.1
+    assert pricing["m"].output_per_million == 0.2

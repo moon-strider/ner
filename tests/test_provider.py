@@ -141,6 +141,43 @@ async def test_extract_returns_entities_on_valid_json(httpx_mock: Any) -> None:
 
 
 @pytest.mark.asyncio
+async def test_few_shot_examples_are_sent_before_request(httpx_mock: Any) -> None:
+    provider = _provider()
+    prepared = prepare_config(
+        NERConfig(
+            labels=_labels(),
+            retries=1,
+            max_tokens=1024,
+            few_shot_examples=[
+                {
+                    "text": "Ada Lovelace wrote notes.",
+                    "entities": [{"text": "Ada Lovelace", "label": "PERSON"}],
+                }
+            ],
+        )
+    )
+
+    httpx_mock.add_response(
+        url="https://api.example.com/v1/chat/completions",
+        json=_completion_json('{"entities":[{"text":"Tim Cook","label":"PERSON"}]}', 10),
+    )
+
+    await provider.extract("Tim Cook", prepared=prepared, system_prompt="Extract entities.")
+
+    body = httpx_mock.get_requests()[0].read().decode()
+    messages = __import__("json").loads(body)["messages"]
+    assert messages == [
+        {"role": "system", "content": "Extract entities."},
+        {"role": "user", "content": "Ada Lovelace wrote notes."},
+        {
+            "role": "assistant",
+            "content": '{"entities":[{"text":"Ada Lovelace","label":"PERSON"}]}',
+        },
+        {"role": "user", "content": "Tim Cook"},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_extract_retries_on_invalid_json(httpx_mock: Any) -> None:
     provider = _provider()
     prepared = prepare_config(NERConfig(labels=_labels(), retries=3, max_tokens=1024))

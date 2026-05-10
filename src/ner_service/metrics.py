@@ -38,6 +38,24 @@ _circuit_breaker = Counter(
     ["provider", "model", "state"],
 )
 
+_cache = Counter(
+    "ner_cache_total",
+    "NER cache events",
+    ["status"],
+)
+
+_structured_output_retries = Counter(
+    "ner_structured_output_retries_total",
+    "Structured output repair retries",
+    ["provider", "model"],
+)
+
+_estimated_cost = Counter(
+    "ner_estimated_cost_usd_total",
+    "Estimated LLM cost in USD",
+    ["provider", "model"],
+)
+
 
 class MetricsCollector:
     def record_attempt(self, provider: str, model: str, duration_ms: float, success: bool) -> None:
@@ -58,6 +76,17 @@ class MetricsCollector:
 
     def record_circuit_breaker(self, provider: str, model: str, state: str) -> None:
         _circuit_breaker.labels(provider=provider, model=model, state=state).inc()
+
+    def record_cache(self, status: str) -> None:
+        _cache.labels(status=status).inc()
+
+    def record_structured_output_retries(self, provider: str, model: str, retries: int) -> None:
+        if retries > 0:
+            _structured_output_retries.labels(provider=provider, model=model).inc(retries)
+
+    def record_estimated_cost(self, provider: str, model: str, cost_usd: float) -> None:
+        if cost_usd > 0:
+            _estimated_cost.labels(provider=provider, model=model).inc(cost_usd)
 
 
 @contextmanager

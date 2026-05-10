@@ -25,6 +25,9 @@ class ConfigStoreBackend(ABC):
     @abstractmethod
     async def list(self) -> list[StoredConfig]: ...
 
+    @abstractmethod
+    async def healthcheck(self) -> dict[str, Any]: ...
+
 
 class MemoryStore(ConfigStoreBackend):
     def __init__(self) -> None:
@@ -46,6 +49,9 @@ class MemoryStore(ConfigStoreBackend):
         return [
             StoredConfig(id=config_id, data=dict(data)) for config_id, data in self._items.items()
         ]
+
+    async def healthcheck(self) -> dict[str, Any]:
+        return {"backend": "memory", "status": "ok"}
 
 
 class SQLiteStore(ConfigStoreBackend):
@@ -111,3 +117,16 @@ class SQLiteStore(ConfigStoreBackend):
             StoredConfig(id=cast(str, row[0]), data=cast(dict[str, Any], json.loads(row[1])))
             for row in rows
         ]
+
+    async def healthcheck(self) -> dict[str, Any]:
+        await self._init()
+        import aiosqlite
+
+        async with (
+            aiosqlite.connect(self._path) as db,
+            db.execute("SELECT 1") as cursor,
+        ):
+            row = await cursor.fetchone()
+        if row is None or row[0] != 1:
+            raise RuntimeError("sqlite healthcheck failed")
+        return {"backend": "sqlite", "status": "ok", "path": self._path}

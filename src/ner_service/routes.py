@@ -27,6 +27,13 @@ def _get_service(request: Request) -> NerService:
     return svc
 
 
+def _get_settings(request: Request) -> Settings:
+    settings: Settings | None = getattr(request.app.state, "settings", None)
+    if settings is None:
+        raise HTTPException(status_code=503, detail="settings not initialized")
+    return settings
+
+
 def _request_id(request: Request) -> str:
     value = getattr(request.state, "request_id", None)
     if isinstance(value, str) and value:
@@ -67,16 +74,10 @@ async def health() -> dict[str, str]:
 
 
 @router.get("/ready")
-async def ready(request: Request) -> dict[str, str]:
-    svc: NerService | None = getattr(request.app.state, "service", None)
-    settings: Settings | None = getattr(request.app.state, "settings", None)
-    if svc is None or settings is None:
-        raise HTTPException(status_code=503, detail="service not initialized")
-    return {
-        "status": "ready",
-        "provider": svc.provider.name,
-        "model": svc.provider.model,
-    }
+async def ready(request: Request) -> dict[str, Any]:
+    svc = _get_service(request)
+    _get_settings(request)
+    return await svc.ready()
 
 
 @router.get("/providers")
@@ -183,10 +184,12 @@ async def batch_extract(
     request: Request,
     payload: BatchExtractRequest,
     svc: NerService = Depends(_get_service),
+    settings: Settings = Depends(_get_settings),
 ) -> BatchExtractResponse:
     return await bulk_extract(
         svc,
         payload.items,
         request_id_factory=lambda: _request_id(request),
         envelope_factory=_extract_envelope,
+        concurrency=settings.batch_concurrency,
     )

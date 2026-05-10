@@ -39,13 +39,20 @@ async def lifespan(app: FastAPI) -> Any:
             await injected_service.aclose()
         return
     provider = get_provider(settings)
+    cache = None
+    if settings.cache_enabled:
+        cache = ResultCache(
+            MemoryCache(max_size=settings.cache_max_size),
+            ttl=settings.cache_ttl_seconds,
+        )
     app.state.service = NerService(
         provider,
         default_model=settings.ner_model,
         max_tokens=settings.max_tokens,
         limits=settings.runtime_limits(),
-        cache=ResultCache(MemoryCache()),
-        config_store=SQLiteStore(),
+        cache=cache,
+        config_store=SQLiteStore(settings.config_db_path),
+        token_pricing=settings.token_pricing(),
     )
     try:
         yield

@@ -25,8 +25,6 @@ class NERConfigPatch:
     reasoning_effort: None | str | Unset = UNSET
     system_prompt: None | str | Unset = UNSET
     few_shot_examples: list[FewShotExample] | None | Unset = UNSET
-    confidence: bool | None | Unset = UNSET
-    output_format: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -85,16 +83,6 @@ class NERConfigPatch:
                 few_shot_examples.append(few_shot_examples_type_0_item)
         else:
             few_shot_examples = self.few_shot_examples
-        confidence: bool | None | Unset
-        if isinstance(self.confidence, Unset):
-            confidence = UNSET
-        else:
-            confidence = self.confidence
-        output_format: None | str | Unset
-        if isinstance(self.output_format, Unset):
-            output_format = UNSET
-        else:
-            output_format = self.output_format
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
@@ -116,10 +104,6 @@ class NERConfigPatch:
             field_dict["system_prompt"] = system_prompt
         if few_shot_examples is not UNSET:
             field_dict["few_shot_examples"] = few_shot_examples
-        if confidence is not UNSET:
-            field_dict["confidence"] = confidence
-        if output_format is not UNSET:
-            field_dict["output_format"] = output_format
         return field_dict
 
     @classmethod
@@ -233,24 +217,6 @@ class NERConfigPatch:
             return cast(list[FewShotExample] | None | Unset, data)
 
         few_shot_examples = _parse_few_shot_examples(d.pop("few_shot_examples", UNSET))
-
-        def _parse_confidence(data: object) -> bool | None | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(bool | None | Unset, data)
-
-        confidence = _parse_confidence(d.pop("confidence", UNSET))
-
-        def _parse_output_format(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        output_format = _parse_output_format(d.pop("output_format", UNSET))
         ner_config_patch = cls(
             labels=labels,
             model=model,
@@ -261,8 +227,6 @@ class NERConfigPatch:
             reasoning_effort=reasoning_effort,
             system_prompt=system_prompt,
             few_shot_examples=few_shot_examples,
-            confidence=confidence,
-            output_format=output_format,
         )
         ner_config_patch.additional_properties = d
         return ner_config_patch

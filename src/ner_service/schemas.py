@@ -39,8 +39,6 @@ class NERConfig(BaseModel):
     reasoning_effort: str | None = None
     system_prompt: str | None = Field(default=None, min_length=1)
     few_shot_examples: list[FewShotExample] = Field(default_factory=list)
-    confidence: bool = False
-    output_format: str = Field(default="json")
 
     @model_validator(mode="after")
     def _unique_label_names(self) -> NERConfig:
@@ -48,13 +46,6 @@ class NERConfig(BaseModel):
         if len(set(names)) != len(names):
             raise ValueError("label names must be unique")
         return self
-
-    @field_validator("output_format")
-    @classmethod
-    def _output_format(cls, v: str) -> str:
-        if v not in {"json", "bio", "spans", "dict"}:
-            raise ValueError("output_format must be json, bio, spans, or dict")
-        return v
 
 
 class NERConfigPatch(BaseModel):
@@ -67,8 +58,6 @@ class NERConfigPatch(BaseModel):
     reasoning_effort: str | None = None
     system_prompt: str | None = Field(default=None, min_length=1)
     few_shot_examples: list[FewShotExample] | None = None
-    confidence: bool | None = None
-    output_format: str | None = Field(default=None)
 
     @model_validator(mode="after")
     def _unique_label_names(self) -> NERConfigPatch:
@@ -79,31 +68,10 @@ class NERConfigPatch(BaseModel):
             raise ValueError("label names must be unique")
         return self
 
-    @field_validator("output_format")
-    @classmethod
-    def _output_format(cls, v: str | None) -> str | None:
-        if v is None or v in {"json", "bio", "spans", "dict"}:
-            return v
-        raise ValueError("output_format must be json, bio, spans, or dict")
-
 
 class NERConfigRecord(BaseModel):
     id: str
     config: NERConfig
-
-
-class EntityWithConfidence(BaseModel):
-    text: str
-    label: str
-    start: int | None = Field(default=None, ge=0)
-    end: int | None = Field(default=None, ge=0)
-    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
-
-
-class Relation(BaseModel):
-    source: str
-    target: str
-    type: str
 
 
 class ExtractRequest(BaseModel):

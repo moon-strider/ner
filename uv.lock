@@ -978,6 +978,7 @@ dependencies = [
     { name = "opentelemetry-instrumentation-fastapi" },
     { name = "opentelemetry-sdk" },
     { name = "prometheus-fastapi-instrumentator" },
+    { name = "pyahocorasick" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "stdlib-list" },
@@ -997,7 +998,6 @@ dev = [
 [package.dev-dependencies]
 dev = [
     { name = "openapi-python-client" },
-    { name = "pyahocorasick" },
 ]
 
 [package.metadata]
@@ -1011,6 +1011,7 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-fastapi", specifier = "==0.62b1" },
     { name = "opentelemetry-sdk", specifier = "==1.41.1" },
     { name = "prometheus-fastapi-instrumentator", specifier = "==7.1.0" },
+    { name = "pyahocorasick", specifier = "==2.3.1" },
     { name = "pydantic", specifier = "==2.13.4" },
     { name = "pydantic-settings", specifier = "==2.14.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "==9.0.3" },
@@ -1023,10 +1024,7 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "openapi-python-client", specifier = "==0.28.3" },
-    { name = "pyahocorasick", specifier = "==2.3.1" },
-]
+dev = [{ name = "openapi-python-client", specifier = "==0.28.3" }]
 
 [[package]]
 name = "numpy"

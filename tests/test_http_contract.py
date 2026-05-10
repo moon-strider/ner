@@ -57,7 +57,12 @@ def test_ready_returns_initialized_provider() -> None:
         response = client.get("/v1/ready")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ready", "provider": "fake", "model": "fake-model"}
+    assert response.json() == {
+        "status": "ready",
+        "provider": "fake",
+        "model": "fake-model",
+        "config_store": {"backend": "memory", "status": "ok"},
+    }
 
 
 def test_extract_returns_success_envelope_with_request_id() -> None:

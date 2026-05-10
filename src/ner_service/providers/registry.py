@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from ner_service.circuit_breaker import CircuitBreaker
 from ner_service.config import Settings
 from ner_service.providers.base import NerProvider
 from ner_service.providers.openai_compatible import OpenAICompatibleProvider
@@ -13,6 +14,14 @@ def _rate_limiter(settings: Settings) -> RateLimiter:
         rate_per_second=settings.rate_limit_rps,
         burst=settings.rate_limit_burst,
         provider_concurrency=settings.provider_concurrency_limit,
+    )
+
+
+def _circuit_breaker(settings: Settings) -> CircuitBreaker:
+    return CircuitBreaker(
+        failure_threshold=settings.circuit_breaker_failure_threshold,
+        recovery_timeout=settings.circuit_breaker_recovery_timeout_s,
+        half_open_max_calls=settings.circuit_breaker_half_open_max_calls,
     )
 
 
@@ -30,24 +39,7 @@ def _openai_provider(settings: Settings) -> NerProvider:
         timeout=settings.request_timeout_s,
         max_retries=settings.transport_retries,
         provider_name="openai",
-        rate_limiter=_rate_limiter(settings),
-    )
-
-
-def _anthropic_provider(settings: Settings) -> NerProvider:
-    from pydantic import SecretStr
-
-    api_key = settings.anthropic_api_key
-    if api_key is None or (isinstance(api_key, SecretStr) and not api_key.get_secret_value()):
-        raise RuntimeError("ANTHROPIC_API_KEY is required when NER_PROVIDER=anthropic")
-    key = api_key.get_secret_value() if isinstance(api_key, SecretStr) else api_key
-    return OpenAICompatibleProvider(
-        api_key=key,
-        base_url=settings.anthropic_base_url or "https://api.anthropic.com/v1",
-        model=settings.ner_model,
-        timeout=settings.request_timeout_s,
-        max_retries=settings.transport_retries,
-        provider_name="anthropic",
+        circuit_breaker=_circuit_breaker(settings),
         rate_limiter=_rate_limiter(settings),
     )
 
@@ -66,6 +58,7 @@ def _cerebras_provider(settings: Settings) -> NerProvider:
         timeout=settings.request_timeout_s,
         max_retries=settings.transport_retries,
         provider_name="cerebras",
+        circuit_breaker=_circuit_breaker(settings),
         rate_limiter=_rate_limiter(settings),
     )
 
@@ -84,6 +77,7 @@ def _openrouter_provider(settings: Settings) -> NerProvider:
         timeout=settings.request_timeout_s,
         max_retries=settings.transport_retries,
         provider_name="openrouter",
+        circuit_breaker=_circuit_breaker(settings),
         rate_limiter=_rate_limiter(settings),
     )
 
@@ -100,13 +94,13 @@ def _vllm_provider(settings: Settings) -> NerProvider:
         timeout=settings.request_timeout_s,
         max_retries=settings.transport_retries,
         provider_name="vllm",
+        circuit_breaker=_circuit_breaker(settings),
         rate_limiter=_rate_limiter(settings),
     )
 
 
 _REGISTRY: dict[str, Callable[[Settings], NerProvider]] = {
     "openai": _openai_provider,
-    "anthropic": _anthropic_provider,
     "cerebras": _cerebras_provider,
     "openrouter": _openrouter_provider,
     "vllm": _vllm_provider,

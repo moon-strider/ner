@@ -5,13 +5,14 @@ import json
 from pydantic import ValidationError
 
 from ner_service.cache import ResultCache
-from ner_service.config import RuntimeLimits
+from ner_service.config import RuntimeLimits, TokenPricing
 from ner_service.config_store import (
     ConfigStore,
     PreparedNERConfig,
     prepare_config,
     render_system_prompt,
 )
+from ner_service.metrics import MetricsCollector
 from ner_service.offsets import canonicalize_entities
 from ner_service.offsets_trie import attach_offsets_trie
 from ner_service.providers.base import NerProvider
@@ -35,6 +36,7 @@ class NerService:
         limits: RuntimeLimits | None = None,
         cache: ResultCache | None = None,
         config_store: ConfigStoreBackend | None = None,
+        token_pricing: dict[str, TokenPricing] | None = None,
     ) -> None:
         self._provider = provider
         self._default_model = default_model
@@ -42,6 +44,8 @@ class NerService:
         self._limits = limits or RuntimeLimits()
         self._configs = ConfigStore(config_store)
         self._cache = cache
+        self._token_pricing = token_pricing or {}
+        self._metrics = MetricsCollector()
 
     @property
     def provider(self) -> NerProvider:
@@ -76,13 +80,23 @@ class NerService:
         self._validate_config_id(config_id)
         await self._configs.delete(config_id)
 
+    async def ready(self) -> dict[str, object]:
+        return {
+            "status": "ready",
+            "provider": self._provider.name,
+            "model": self._provider.model,
+            "config_store": await self._configs.healthcheck(),
+        }
+
     async def extract(self, request: ExtractRequest) -> ExtractResponse:
         self._validate_request(request)
         prepared = await self._resolve_config(request)
         config_key = self._cache_key(prepared)
         cached = self._cache.get(request.text, config_key) if self._cache is not None else None
         if cached is not None:
+            self._metrics.record_cache("hit")
             return ExtractResponse.model_validate(cached)
+        self._metrics.record_cache("miss")
         system_prompt = render_system_prompt(prepared, request.prompt_payload)
         raw = await self._provider.extract(
             request.text,
@@ -110,6 +124,12 @@ class NerService:
             usage=raw.usage,
             attempts=raw.attempts,
         )
+        self._metrics.record_structured_output_retries(
+            provider=self._provider.name,
+            model=config.model,
+            retries=raw.attempts - 1,
+        )
+        self._record_estimated_cost(config.model, raw.usage)
         if self._cache is not None:
             self._cache.set(
                 request.text,
@@ -175,3 +195,18 @@ class NerService:
     def _validate_config_id(self, config_id: str) -> None:
         if len(config_id) > self._limits.max_config_id_length:
             raise ValueError(f"config_id length must be <= {self._limits.max_config_id_length}")
+
+    def _record_estimated_cost(self, model: str, usage: dict[str, object] | None) -> None:
+        if not usage:
+            return
+        pricing = self._token_pricing.get(model)
+        if pricing is None:
+            return
+        prompt_tokens = usage.get("prompt_tokens")
+        completion_tokens = usage.get("completion_tokens")
+        prompt = prompt_tokens if isinstance(prompt_tokens, int | float) else 0
+        completion = completion_tokens if isinstance(completion_tokens, int | float) else 0
+        cost = (
+            prompt * pricing.input_per_million + completion * pricing.output_per_million
+        ) / 1_000_000
+        self._metrics.record_estimated_cost(self._provider.name, model, cost)
