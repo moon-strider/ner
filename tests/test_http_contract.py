@@ -9,6 +9,7 @@ from ner_service.main import create_app
 from ner_service.providers.base import ProviderRateLimitError
 from ner_service.schemas import RawEntities, RawEntity
 from ner_service.service import NerService
+from ner_service.telemetry import setup_tracing
 
 
 class HttpFakeProvider:
@@ -179,3 +180,25 @@ def test_batch_extract_returns_mixed_results() -> None:
         "message": "provider rate limit exceeded",
     }
     assert payload["items"][1]["meta"]["attempts"] == 0
+
+
+def test_setup_tracing_marks_app_initialized() -> None:
+    app = create_app(
+        settings=Settings(cerebras_api_key="test"),
+        service=NerService(HttpFakeProvider()),
+    )
+
+    assert app.state.tracing_initialized is True
+    assert app.state.tracer_provider is not None
+
+
+def test_setup_tracing_with_endpoint_sets_provider() -> None:
+    app = create_app(
+        settings=Settings(cerebras_api_key="test", otel_endpoint="http://otel.example/v1/traces"),
+        service=NerService(HttpFakeProvider()),
+    )
+
+    setup_tracing(app)
+
+    assert app.state.tracing_initialized is True
+    assert app.state.tracer_provider is not None
