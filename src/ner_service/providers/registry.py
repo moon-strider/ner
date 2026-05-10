@@ -7,6 +7,7 @@ from ner_service.providers.openai_compatible import OpenAICompatibleProvider
 
 def _openai_provider(settings: Settings) -> NerProvider:
     from pydantic import SecretStr
+
     api_key = settings.openai_api_key
     if api_key is None or (isinstance(api_key, SecretStr) and not api_key.get_secret_value()):
         raise RuntimeError("OPENAI_API_KEY is required when NER_PROVIDER=openai")
@@ -23,6 +24,7 @@ def _openai_provider(settings: Settings) -> NerProvider:
 
 def _anthropic_provider(settings: Settings) -> NerProvider:
     from pydantic import SecretStr
+
     api_key = settings.anthropic_api_key
     if api_key is None or (isinstance(api_key, SecretStr) and not api_key.get_secret_value()):
         raise RuntimeError("ANTHROPIC_API_KEY is required when NER_PROVIDER=anthropic")
@@ -39,6 +41,7 @@ def _anthropic_provider(settings: Settings) -> NerProvider:
 
 def _cerebras_provider(settings: Settings) -> NerProvider:
     from pydantic import SecretStr
+
     api_key = settings.cerebras_api_key
     if api_key is None or (isinstance(api_key, SecretStr) and not api_key.get_secret_value()):
         raise RuntimeError("CEREBRAS_API_KEY is required when NER_PROVIDER=cerebras")
@@ -55,6 +58,7 @@ def _cerebras_provider(settings: Settings) -> NerProvider:
 
 def _openrouter_provider(settings: Settings) -> NerProvider:
     from pydantic import SecretStr
+
     api_key = settings.openrouter_api_key
     if api_key is None or (isinstance(api_key, SecretStr) and not api_key.get_secret_value()):
         raise RuntimeError("OPENROUTER_API_KEY is required when NER_PROVIDER=openrouter")

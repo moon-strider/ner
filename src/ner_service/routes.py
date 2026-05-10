@@ -31,6 +31,7 @@ def _request_id(request: Request) -> str:
     if isinstance(value, str) and value:
         return value
     import uuid
+
     return str(uuid.uuid4())
 
 
@@ -164,6 +165,4 @@ async def extract(
             error_type = exc.__class__.__name__
             metrics.record_error(provider=svc.provider.name, error_type=error_type)
             raise
-    return _extract_envelope(
-        response, request_id=_request_id(request), latency_ms=timer[0]
-    )
+    return _extract_envelope(response, request_id=_request_id(request), latency_ms=timer[0])

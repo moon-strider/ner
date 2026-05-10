@@ -54,6 +54,7 @@ class MetricsCollector:
 @contextmanager
 def extraction_timer() -> Generator[list[float], None, None]:
     import time
+
     started = time.perf_counter()
     duration_ms = [0.0]
     try:

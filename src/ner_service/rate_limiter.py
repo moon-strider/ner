@@ -44,9 +44,7 @@ class RateLimiter:
     async def acquire(self, provider: str) -> None:
         if not await self._global.acquire():
             raise RateLimitExceeded("global rate limit exceeded")
-        sem = self._provider_sem.setdefault(
-            provider, asyncio.Semaphore(self._provider_concurrency)
-        )
+        sem = self._provider_sem.setdefault(provider, asyncio.Semaphore(self._provider_concurrency))
         acquired = await sem.acquire()
         if not acquired:
             raise RateLimitExceeded("provider concurrency limit exceeded")

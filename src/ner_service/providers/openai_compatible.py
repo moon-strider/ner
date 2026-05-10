@@ -248,9 +248,7 @@ class OpenAICompatibleProvider:
             self._client = None
 
 
-def _merge_usage(
-    total: dict[str, Any], usage: dict[str, Any] | None
-) -> dict[str, Any]:
+def _merge_usage(total: dict[str, Any], usage: dict[str, Any] | None) -> dict[str, Any]:
     if usage is None:
         return total
     result = dict(total)

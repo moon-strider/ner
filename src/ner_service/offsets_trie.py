@@ -2,6 +2,7 @@ from __future__ import annotations
 
 try:
     import ahocorasick
+
     _HAS_AHOCORASICK = True
 except ImportError:
     _HAS_AHOCORASICK = False
