@@ -18,41 +18,42 @@ def attach_offsets_trie(
 ) -> list[Entity]:
     if not _HAS_AHOCORASICK:
         raise ImportError("pyahocorasick required")
+    if not raw_entities:
+        return []
 
     result: list[Entity] = []
     consumed: list[tuple[int, int]] = []
+    items = [raw for raw in raw_entities if raw.text]
+    if not items:
+        return []
 
+    automaton = ahocorasick.Automaton()
     if case_sensitive:
-        automaton = ahocorasick.Automaton()
-        for raw in raw_entities:
-            if raw.text:
-                automaton.add_word(raw.text, (raw.text, raw.label))
+        for raw in items:
+            automaton.add_word(raw.text, (raw.text, raw.label))
         automaton.make_automaton()
-
         for end_index, (surface, label) in automaton.iter(text):
             start = end_index - len(surface) + 1
             end = end_index + 1
             span = (start, end)
-            if not any(_overlaps(span, c) for c in consumed):
-                consumed.append(span)
-                result.append(Entity(text=text[start:end], label=label, start=start, end=end))
-    else:
-        automaton = ahocorasick.Automaton()
-        lower_text = text.lower()
-        for raw in raw_entities:
-            if raw.text:
-                automaton.add_word(raw.text.lower(), (raw.text, raw.label))
-        automaton.make_automaton()
+            if any(_overlaps(span, existing) for existing in consumed):
+                continue
+            consumed.append(span)
+            result.append(Entity(text=text[start:end], label=label, start=start, end=end))
+        return result
 
-        for end_index, (surface_lower, label) in automaton.iter(lower_text):
-            start = end_index - len(surface_lower) + 1
-            end = end_index + 1
-            span = (start, end)
-            if not any(_overlaps(span, c) for c in consumed):
-                consumed.append(span)
-                original = text[start:end]
-                result.append(Entity(text=original, label=label, start=start, end=end))
-
+    lowered_text = text.lower()
+    for raw in items:
+        automaton.add_word(raw.text.lower(), (raw.text.lower(), raw.label))
+    automaton.make_automaton()
+    for end_index, (surface, label) in automaton.iter(lowered_text):
+        start = end_index - len(surface) + 1
+        end = end_index + 1
+        span = (start, end)
+        if any(_overlaps(span, existing) for existing in consumed):
+            continue
+        consumed.append(span)
+        result.append(Entity(text=text[start:end], label=label, start=start, end=end))
     return result
 
 

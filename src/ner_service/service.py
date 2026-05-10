@@ -12,7 +12,8 @@ from ner_service.config_store import (
     prepare_config,
     render_system_prompt,
 )
-from ner_service.offsets import attach_offsets, canonicalize_entities
+from ner_service.offsets import canonicalize_entities
+from ner_service.offsets_trie import attach_offsets_trie
 from ner_service.providers.base import NerProvider
 from ner_service.schemas import (
     ExtractRequest,
@@ -88,7 +89,7 @@ class NerService:
         )
         config = prepared.config
         entities = (
-            attach_offsets(
+            attach_offsets_trie(
                 request.text,
                 raw.entities,
                 case_sensitive=config.case_sensitive,

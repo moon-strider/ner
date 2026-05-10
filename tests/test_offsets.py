@@ -1,11 +1,41 @@
 from __future__ import annotations
 
+import pytest
+
 from ner_service.offsets import attach_offsets
-from ner_service.schemas import RawEntity
+from ner_service.offsets_trie import attach_offsets_trie
+from ner_service.schemas import EntityLabel, ExtractRequest, NERConfig, RawEntities, RawEntity
+from ner_service.service import NerService
 
 
 def _raw(text: str, label: str = "X") -> RawEntity:
     return RawEntity(text=text, label=label)
+
+
+def _config(*, require_offsets: bool = True, case_sensitive: bool = True) -> NERConfig:
+    return NERConfig(
+        labels=[
+            EntityLabel(name="PERSON", description="People"),
+            EntityLabel(name="LOCATION", description="Places"),
+            EntityLabel(name="X", description="Generic"),
+        ],
+        require_offsets=require_offsets,
+        case_sensitive=case_sensitive,
+    )
+
+
+class TrieProvider:
+    name = "fake"
+    model = "fake-model"
+
+    def __init__(self, entities: list[RawEntity]) -> None:
+        self.entities = entities
+
+    async def extract(self, text: str, *, prepared, system_prompt: str) -> RawEntities:
+        return RawEntities(entities=self.entities)
+
+    async def aclose(self) -> None:
+        return None
 
 
 def test_single_occurrence() -> None:
@@ -73,3 +103,52 @@ def test_case_insensitive_offsets_return_input_casing() -> None:
     text = "Tim Cook visited Berlin."
     out = attach_offsets(text, [_raw("tim cook", "PERSON")], case_sensitive=False)
     assert [(e.text, e.label, e.start, e.end) for e in out] == [("Tim Cook", "PERSON", 0, 8)]
+
+
+def test_trie_offsets_match_current_offset_behavior() -> None:
+    cases = [
+        (
+            "Tim Cook visited Berlin.",
+            [_raw("Tim Cook", "PERSON"), _raw("Berlin", "LOCATION")],
+            True,
+        ),
+        ("Paris is Paris.", [_raw("Paris"), _raw("Paris")], True),
+        ("Berlin only once.", [_raw("Berlin"), _raw("Berlin")], True),
+        ("Apple released something.", [_raw("Microsoft")], True),
+        ("Café opened in São Paulo.", [_raw("Café"), _raw("São Paulo")], True),
+        ("ab ab ab", [_raw("ab"), _raw("ab"), _raw("ab")], True),
+        ("Foo Bar.", [_raw("Foo", "PERSON"), _raw("Bar", "LOCATION")], True),
+        ("Tim Cook visited Berlin.", [_raw("tim cook", "PERSON")], False),
+    ]
+
+    for text, raw_entities, case_sensitive in cases:
+        assert attach_offsets_trie(
+            text,
+            raw_entities,
+            case_sensitive=case_sensitive,
+        ) == attach_offsets(
+            text,
+            raw_entities,
+            case_sensitive=case_sensitive,
+        )
+
+
+def test_trie_empty_surface_is_skipped() -> None:
+    assert attach_offsets_trie("Hello world", [_raw("")]) == []
+
+
+@pytest.mark.asyncio
+async def test_service_uses_trie_offsets_when_required() -> None:
+    service = NerService(TrieProvider([_raw("Tim Cook", "PERSON"), _raw("Berlin", "LOCATION")]))
+
+    response = await service.extract(
+        ExtractRequest(
+            text="Tim Cook visited Berlin.",
+            config=_config(require_offsets=True),
+        )
+    )
+
+    assert [(e.text, e.label, e.start, e.end) for e in response.entities] == [
+        ("Tim Cook", "PERSON", 0, 8),
+        ("Berlin", "LOCATION", 17, 23),
+    ]
