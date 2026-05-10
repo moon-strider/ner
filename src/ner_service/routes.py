@@ -4,6 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
+from ner_service.batch import BatchExtractRequest, BatchExtractResponse, bulk_extract
 from ner_service.config import Settings
 from ner_service.metrics import MetricsCollector
 from ner_service.schemas import (
@@ -171,3 +172,21 @@ async def extract(
         usage=response.usage,
     )
     return _extract_envelope(response, request_id=_request_id(request), latency_ms=duration_ms)
+
+
+@router.post(
+    "/batch/extract",
+    response_model=BatchExtractResponse,
+    response_model_exclude_none=True,
+)
+async def batch_extract(
+    request: Request,
+    payload: BatchExtractRequest,
+    svc: NerService = Depends(_get_service),
+) -> BatchExtractResponse:
+    return await bulk_extract(
+        svc,
+        payload.items,
+        request_id_factory=lambda: _request_id(request),
+        envelope_factory=_extract_envelope,
+    )

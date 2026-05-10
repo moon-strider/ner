@@ -15,12 +15,20 @@ class HttpFakeProvider:
     name = "fake"
     model = "fake-model"
 
-    def __init__(self, *, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        error: Exception | None = None,
+        error_by_text: dict[str, Exception] | None = None,
+    ) -> None:
         self.error = error
+        self.error_by_text = error_by_text or {}
         self.calls: list[dict[str, Any]] = []
 
     async def extract(self, text: str, *, prepared: Any, system_prompt: str) -> RawEntities:
         self.calls.append({"text": text, "prepared": prepared, "system_prompt": system_prompt})
+        if text in self.error_by_text:
+            raise self.error_by_text[text]
         if self.error is not None:
             raise self.error
         return RawEntities(
@@ -128,3 +136,46 @@ def test_provider_errors_use_redacted_error_envelope() -> None:
         "status_code": 429,
         "headers": {"retry-after": "3"},
     }
+
+
+def test_batch_extract_returns_mixed_results() -> None:
+    provider = HttpFakeProvider(
+        error_by_text={
+            "Grace Hopper": ProviderRateLimitError(
+                "provider rate limit exceeded",
+                headers={"retry-after": "5"},
+            )
+        }
+    )
+    with _client(provider) as client:
+        config_response = client.post(
+            "/v1/configs",
+            json={"labels": [{"name": "PERSON", "description": "People"}]},
+        )
+        config_id = config_response.json()["id"]
+        response = client.post(
+            "/v1/batch/extract",
+            json={
+                "items": [
+                    {"text": "Tim Cook", "config_id": config_id},
+                    {"text": "Grace Hopper", "config_id": config_id},
+                ]
+            },
+        )
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert len(payload["items"]) == 2
+    assert payload["meta"]["total"] == 2
+    assert payload["meta"]["succeeded"] == 1
+    assert payload["meta"]["failed"] == 1
+    assert payload["meta"]["latency_ms"] >= 0
+    assert payload["items"][0]["index"] == 0
+    assert payload["items"][0]["data"]["data"]["provider"] == "fake"
+    assert payload["items"][0]["meta"]["attempts"] == 2
+    assert payload["items"][1]["index"] == 1
+    assert payload["items"][1]["error"] == {
+        "code": "ProviderRateLimitError",
+        "message": "provider rate limit exceeded",
+    }
+    assert payload["items"][1]["meta"]["attempts"] == 0
