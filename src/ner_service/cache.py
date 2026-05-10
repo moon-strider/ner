@@ -30,7 +30,7 @@ class MemoryCache(CacheBackend):
 
     def set(self, key: str, value: dict[str, Any], ttl: int) -> None:
         if len(self._data) >= self._max_size and key not in self._data:
-            oldest = min(self._expires, key=self._expires.get)
+            oldest = min(self._expires, key=lambda k: self._expires[k])
             self._delete(oldest)
         self._data[key] = value
         self._expires[key] = time.time() + ttl

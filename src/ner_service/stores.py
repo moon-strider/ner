@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, cast
 
 
 class ConfigStoreBackend(ABC):
@@ -45,7 +45,7 @@ class SQLiteStore(ConfigStoreBackend):
             if row:
                 import json
 
-                return json.loads(row[0])
+                return cast(dict[str, Any], json.loads(row[0]))
             return None
 
     async def set(self, config_id: str, config: dict[str, Any]) -> None:

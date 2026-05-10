@@ -54,7 +54,15 @@ strict = true
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["cerebras.*"]
+module = [
+    "cerebras.*",
+    "opentelemetry",
+    "opentelemetry.exporter.*",
+    "opentelemetry.instrumentation.*",
+    "opentelemetry.sdk.*",
+    "aiosqlite",
+    "ahocorasick",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

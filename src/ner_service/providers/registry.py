@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from ner_service.config import Settings
 from ner_service.providers.base import NerProvider
 from ner_service.providers.openai_compatible import OpenAICompatibleProvider
@@ -88,7 +90,7 @@ def _vllm_provider(settings: Settings) -> NerProvider:
     )
 
 
-_REGISTRY: dict[str, callable] = {
+_REGISTRY: dict[str, Callable[[Settings], NerProvider]] = {
     "openai": _openai_provider,
     "anthropic": _anthropic_provider,
     "cerebras": _cerebras_provider,
@@ -105,5 +107,5 @@ def get_provider(settings: Settings) -> NerProvider:
     return factory(settings)
 
 
-def register_provider(name: str, factory: callable) -> None:
+def register_provider(name: str, factory: Callable[[Settings], NerProvider]) -> None:
     _REGISTRY[name.lower()] = factory
