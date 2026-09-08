@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, cast
+
+import aiosqlite
 
 
 @dataclass(frozen=True)
@@ -28,105 +34,98 @@ class ConfigStoreBackend(ABC):
     @abstractmethod
     async def healthcheck(self) -> dict[str, Any]: ...
 
+    async def aclose(self) -> None:
+        return None
+
 
 class MemoryStore(ConfigStoreBackend):
     def __init__(self) -> None:
         self._items: dict[str, dict[str, Any]] = {}
 
     async def get(self, config_id: str) -> dict[str, Any] | None:
-        item = self._items.get(config_id)
-        if item is None:
-            return None
-        return dict(item)
+        return deepcopy(self._items.get(config_id))
 
     async def set(self, config_id: str, config: dict[str, Any]) -> None:
-        self._items[config_id] = dict(config)
+        self._items[config_id] = deepcopy(config)
 
     async def delete(self, config_id: str) -> None:
         self._items.pop(config_id, None)
 
     async def list(self) -> list[StoredConfig]:
-        return [
-            StoredConfig(id=config_id, data=dict(data)) for config_id, data in self._items.items()
-        ]
+        return [StoredConfig(id=key, data=deepcopy(value)) for key, value in self._items.items()]
 
     async def healthcheck(self) -> dict[str, Any]:
         return {"backend": "memory", "status": "ok"}
 
 
 class SQLiteStore(ConfigStoreBackend):
+    """One serialized connection per store, including for SQLite's :memory: databases."""
+
     def __init__(self, path: str = "configs.db") -> None:
         self._path = path
-        self._ready = False
+        self._db: aiosqlite.Connection | None = None
+        self._lock = asyncio.Lock()
 
-    async def _init(self) -> None:
-        if self._ready:
-            return
-        import aiosqlite
-
-        async with aiosqlite.connect(self._path) as db:
-            await db.execute(
-                "CREATE TABLE IF NOT EXISTS configs (id TEXT PRIMARY KEY, data TEXT NOT NULL)"
-            )
-            await db.commit()
-        self._ready = True
+    @asynccontextmanager
+    async def _connection(self) -> AsyncIterator[aiosqlite.Connection]:
+        async with self._lock:
+            if self._db is None:
+                db = await aiosqlite.connect(self._path, timeout=5)
+                try:
+                    await db.execute("PRAGMA journal_mode=WAL")
+                    await db.execute(
+                        "CREATE TABLE IF NOT EXISTS configs "
+                        "(id TEXT PRIMARY KEY, data TEXT NOT NULL)"
+                    )
+                    await db.commit()
+                except BaseException:
+                    await db.close()
+                    raise
+                self._db = db
+            try:
+                yield self._db
+            except BaseException:
+                await self._db.rollback()
+                raise
 
     async def get(self, config_id: str) -> dict[str, Any] | None:
-        await self._init()
-        import aiosqlite
-
         async with (
-            aiosqlite.connect(self._path) as db,
+            self._connection() as db,
             db.execute("SELECT data FROM configs WHERE id = ?", (config_id,)) as cursor,
         ):
             row = await cursor.fetchone()
-        if row is None:
-            return None
-        return cast(dict[str, Any], json.loads(row[0]))
+        return cast(dict[str, Any], json.loads(row[0])) if row is not None else None
 
     async def set(self, config_id: str, config: dict[str, Any]) -> None:
-        await self._init()
-        import aiosqlite
-
-        payload = json.dumps(config, ensure_ascii=False, separators=(",", ":"))
-        async with aiosqlite.connect(self._path) as db:
+        payload = json.dumps(config, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        async with self._connection() as db:
             await db.execute(
-                "INSERT OR REPLACE INTO configs (id, data) VALUES (?, ?)",
+                "INSERT INTO configs (id, data) VALUES (?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET data=excluded.data",
                 (config_id, payload),
             )
             await db.commit()
 
     async def delete(self, config_id: str) -> None:
-        await self._init()
-        import aiosqlite
-
-        async with aiosqlite.connect(self._path) as db:
+        async with self._connection() as db:
             await db.execute("DELETE FROM configs WHERE id = ?", (config_id,))
             await db.commit()
 
     async def list(self) -> list[StoredConfig]:
-        await self._init()
-        import aiosqlite
-
         async with (
-            aiosqlite.connect(self._path) as db,
+            self._connection() as db,
             db.execute("SELECT id, data FROM configs ORDER BY rowid ASC") as cursor,
         ):
             rows = await cursor.fetchall()
-        return [
-            StoredConfig(id=cast(str, row[0]), data=cast(dict[str, Any], json.loads(row[1])))
-            for row in rows
-        ]
+        return [StoredConfig(id=row[0], data=json.loads(row[1])) for row in rows]
 
     async def healthcheck(self) -> dict[str, Any]:
-        await self._init()
-        import aiosqlite
+        async with self._connection() as db, db.execute("SELECT id FROM configs LIMIT 1") as cursor:
+            await cursor.fetchone()
+        return {"backend": "sqlite", "status": "ok"}
 
-        async with (
-            aiosqlite.connect(self._path) as db,
-            db.execute("SELECT 1") as cursor,
-        ):
-            row = await cursor.fetchone()
-        if row is None or row[0] != 1:
-            raise RuntimeError("sqlite healthcheck failed")
-        return {"backend": "sqlite", "status": "ok", "path": self._path}
+    async def aclose(self) -> None:
+        async with self._lock:
+            if self._db is not None:
+                await self._db.close()
+                self._db = None

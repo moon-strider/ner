@@ -4,18 +4,32 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from attrs import define as _attrs_define
-from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
     from ..models.entity_label import EntityLabel
     from ..models.few_shot_example import FewShotExample
+
+
 T = TypeVar("T", bound="NERConfigPatch")
 
 
 @_attrs_define
 class NERConfigPatch:
+    """
+    Attributes:
+        labels (list[EntityLabel] | None | Unset):
+        model (None | str | Unset):
+        require_offsets (bool | None | Unset):
+        case_sensitive (bool | None | Unset):
+        retries (int | None | Unset):
+        max_tokens (int | None | Unset):
+        reasoning_effort (None | str | Unset):
+        system_prompt (None | str | Unset):
+        few_shot_examples (list[FewShotExample] | None | Unset):
+    """
+
     labels: list[EntityLabel] | None | Unset = UNSET
     model: None | str | Unset = UNSET
     require_offsets: bool | None | Unset = UNSET
@@ -25,7 +39,6 @@ class NERConfigPatch:
     reasoning_effort: None | str | Unset = UNSET
     system_prompt: None | str | Unset = UNSET
     few_shot_examples: list[FewShotExample] | None | Unset = UNSET
-    additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         labels: list[dict[str, Any]] | None | Unset
@@ -36,43 +49,52 @@ class NERConfigPatch:
             for labels_type_0_item_data in self.labels:
                 labels_type_0_item = labels_type_0_item_data.to_dict()
                 labels.append(labels_type_0_item)
+
         else:
             labels = self.labels
+
         model: None | str | Unset
         if isinstance(self.model, Unset):
             model = UNSET
         else:
             model = self.model
+
         require_offsets: bool | None | Unset
         if isinstance(self.require_offsets, Unset):
             require_offsets = UNSET
         else:
             require_offsets = self.require_offsets
+
         case_sensitive: bool | None | Unset
         if isinstance(self.case_sensitive, Unset):
             case_sensitive = UNSET
         else:
             case_sensitive = self.case_sensitive
+
         retries: int | None | Unset
         if isinstance(self.retries, Unset):
             retries = UNSET
         else:
             retries = self.retries
+
         max_tokens: int | None | Unset
         if isinstance(self.max_tokens, Unset):
             max_tokens = UNSET
         else:
             max_tokens = self.max_tokens
+
         reasoning_effort: None | str | Unset
         if isinstance(self.reasoning_effort, Unset):
             reasoning_effort = UNSET
         else:
             reasoning_effort = self.reasoning_effort
+
         system_prompt: None | str | Unset
         if isinstance(self.system_prompt, Unset):
             system_prompt = UNSET
         else:
             system_prompt = self.system_prompt
+
         few_shot_examples: list[dict[str, Any]] | None | Unset
         if isinstance(self.few_shot_examples, Unset):
             few_shot_examples = UNSET
@@ -81,10 +103,12 @@ class NERConfigPatch:
             for few_shot_examples_type_0_item_data in self.few_shot_examples:
                 few_shot_examples_type_0_item = few_shot_examples_type_0_item_data.to_dict()
                 few_shot_examples.append(few_shot_examples_type_0_item)
+
         else:
             few_shot_examples = self.few_shot_examples
+
         field_dict: dict[str, Any] = {}
-        field_dict.update(self.additional_properties)
+
         field_dict.update({})
         if labels is not UNSET:
             field_dict["labels"] = labels
@@ -104,6 +128,7 @@ class NERConfigPatch:
             field_dict["system_prompt"] = system_prompt
         if few_shot_examples is not UNSET:
             field_dict["few_shot_examples"] = few_shot_examples
+
         return field_dict
 
     @classmethod
@@ -125,7 +150,9 @@ class NERConfigPatch:
                 _labels_type_0 = data
                 for labels_type_0_item_data in _labels_type_0:
                     labels_type_0_item = EntityLabel.from_dict(labels_type_0_item_data)
+
                     labels_type_0.append(labels_type_0_item)
+
                 return labels_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
@@ -210,13 +237,16 @@ class NERConfigPatch:
                     few_shot_examples_type_0_item = FewShotExample.from_dict(
                         few_shot_examples_type_0_item_data
                     )
+
                     few_shot_examples_type_0.append(few_shot_examples_type_0_item)
+
                 return few_shot_examples_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
             return cast(list[FewShotExample] | None | Unset, data)
 
         few_shot_examples = _parse_few_shot_examples(d.pop("few_shot_examples", UNSET))
+
         ner_config_patch = cls(
             labels=labels,
             model=model,
@@ -228,21 +258,5 @@ class NERConfigPatch:
             system_prompt=system_prompt,
             few_shot_examples=few_shot_examples,
         )
-        ner_config_patch.additional_properties = d
+
         return ner_config_patch
-
-    @property
-    def additional_keys(self) -> list[str]:
-        return list(self.additional_properties.keys())
-
-    def __getitem__(self, key: str) -> Any:
-        return self.additional_properties[key]
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        self.additional_properties[key] = value
-
-    def __delitem__(self, key: str) -> None:
-        del self.additional_properties[key]
-
-    def __contains__(self, key: str) -> bool:
-        return key in self.additional_properties

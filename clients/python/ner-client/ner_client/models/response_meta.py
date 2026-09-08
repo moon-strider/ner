@@ -13,38 +13,72 @@ T = TypeVar("T", bound="ResponseMeta")
 
 @_attrs_define
 class ResponseMeta:
+    """
+    Attributes:
+        request_id (str):
+        latency_ms (float):
+        attempts (int):
+        cache_hit (bool | Unset):  Default: False.
+        warnings (list[str] | Unset):
+    """
+
     request_id: str
     latency_ms: float
     attempts: int
+    cache_hit: bool | Unset = False
     warnings: list[str] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         request_id = self.request_id
+
         latency_ms = self.latency_ms
+
         attempts = self.attempts
+
+        cache_hit = self.cache_hit
+
         warnings: list[str] | Unset = UNSET
         if not isinstance(self.warnings, Unset):
             warnings = self.warnings
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
-            {"request_id": request_id, "latency_ms": latency_ms, "attempts": attempts}
+            {
+                "request_id": request_id,
+                "latency_ms": latency_ms,
+                "attempts": attempts,
+            }
         )
+        if cache_hit is not UNSET:
+            field_dict["cache_hit"] = cache_hit
         if warnings is not UNSET:
             field_dict["warnings"] = warnings
+
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
         request_id = d.pop("request_id")
+
         latency_ms = d.pop("latency_ms")
+
         attempts = d.pop("attempts")
+
+        cache_hit = d.pop("cache_hit", UNSET)
+
         warnings = cast(list[str], d.pop("warnings", UNSET))
+
         response_meta = cls(
-            request_id=request_id, latency_ms=latency_ms, attempts=attempts, warnings=warnings
+            request_id=request_id,
+            latency_ms=latency_ms,
+            attempts=attempts,
+            cache_hit=cache_hit,
+            warnings=warnings,
         )
+
         response_meta.additional_properties = d
         return response_meta
 

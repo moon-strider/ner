@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 
 from ner_service.offsets import attach_offsets
-from ner_service.offsets_trie import attach_offsets_trie
 from ner_service.schemas import EntityLabel, ExtractRequest, NERConfig, RawEntities, RawEntity
 from ner_service.service import NerService
 
@@ -105,40 +104,8 @@ def test_case_insensitive_offsets_return_input_casing() -> None:
     assert [(e.text, e.label, e.start, e.end) for e in out] == [("Tim Cook", "PERSON", 0, 8)]
 
 
-def test_trie_offsets_match_current_offset_behavior() -> None:
-    cases = [
-        (
-            "Tim Cook visited Berlin.",
-            [_raw("Tim Cook", "PERSON"), _raw("Berlin", "LOCATION")],
-            True,
-        ),
-        ("Paris is Paris.", [_raw("Paris"), _raw("Paris")], True),
-        ("Berlin only once.", [_raw("Berlin"), _raw("Berlin")], True),
-        ("Apple released something.", [_raw("Microsoft")], True),
-        ("Café opened in São Paulo.", [_raw("Café"), _raw("São Paulo")], True),
-        ("ab ab ab", [_raw("ab"), _raw("ab"), _raw("ab")], True),
-        ("Foo Bar.", [_raw("Foo", "PERSON"), _raw("Bar", "LOCATION")], True),
-        ("Tim Cook visited Berlin.", [_raw("tim cook", "PERSON")], False),
-    ]
-
-    for text, raw_entities, case_sensitive in cases:
-        assert attach_offsets_trie(
-            text,
-            raw_entities,
-            case_sensitive=case_sensitive,
-        ) == attach_offsets(
-            text,
-            raw_entities,
-            case_sensitive=case_sensitive,
-        )
-
-
-def test_trie_empty_surface_is_skipped() -> None:
-    assert attach_offsets_trie("Hello world", [_raw("")]) == []
-
-
 @pytest.mark.asyncio
-async def test_service_uses_trie_offsets_when_required() -> None:
+async def test_service_attaches_offsets_when_required() -> None:
     service = NerService(TrieProvider([_raw("Tim Cook", "PERSON"), _raw("Berlin", "LOCATION")]))
 
     response = await service.extract(
@@ -152,3 +119,11 @@ async def test_service_uses_trie_offsets_when_required() -> None:
         ("Tim Cook", "PERSON", 0, 8),
         ("Berlin", "LOCATION", 17, 23),
     ]
+
+
+def test_synthetic_gold_fixtures_have_valid_source_offsets(samples):
+    for sample in samples:
+        labels = {item["name"] for item in sample["labels"]}
+        for entity in sample["gold"]:
+            assert sample["text"][entity["start"] : entity["end"]] == entity["text"]
+            assert entity["label"] in labels

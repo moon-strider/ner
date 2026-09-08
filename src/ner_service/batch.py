@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from pydantic import BaseModel, Field
 
+from ner_service.errors import public_error
 from ner_service.schemas import ExtractEnvelope, ExtractRequest
 from ner_service.service import NerService
 
@@ -16,6 +17,7 @@ class BatchExtractRequest(BaseModel):
 
 class BatchExtractItemMeta(BaseModel):
     request_id: str
+    cache_hit: bool = False
     latency_ms: float = Field(..., ge=0.0)
     attempts: int = Field(..., ge=0)
     warnings: list[str] = Field(default_factory=list)
@@ -62,8 +64,8 @@ async def bulk_extract(
                 return BatchExtractItem(
                     index=index,
                     error={
-                        "code": exc.__class__.__name__,
-                        "message": str(exc),
+                        "code": public_error(exc)[1],
+                        "message": public_error(exc)[2],
                     },
                     meta=BatchExtractItemMeta(
                         request_id=request_id,
@@ -86,6 +88,7 @@ async def bulk_extract(
                     request_id=envelope.meta.request_id,
                     latency_ms=envelope.meta.latency_ms,
                     attempts=envelope.meta.attempts,
+                    cache_hit=envelope.meta.cache_hit,
                     warnings=envelope.meta.warnings,
                 ),
             )

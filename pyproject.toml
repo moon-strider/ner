@@ -1,23 +1,21 @@
 [project]
 name = "ner-service"
-version = "1.0"
+version = "1.1.0"
 description = "NER HTTP service backed by LLMs with strict JSON Schema structured output, supporting multiple providers."
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = "MIT"
 dependencies = [
-    "fastapi==0.136.1",
+    "fastapi==0.141.1",
     "uvicorn[standard]==0.46.0",
     "pydantic==2.13.4",
-    "pydantic-settings==2.14.0",
+    "pydantic-settings==2.15.0",
     "httpx==0.28.1",
-    "prometheus-fastapi-instrumentator==7.1.0",
-    "stdlib-list==0.12.0",
-    "pyahocorasick==2.3.1",
+    "prometheus-fastapi-instrumentator==8.1.0",
     "aiosqlite==0.22.1",
-    "opentelemetry-sdk==1.41.1",
-    "opentelemetry-exporter-otlp-proto-http==1.41.1",
-    "opentelemetry-instrumentation-fastapi==0.62b1",
+    "opentelemetry-sdk==1.44.0",
+    "opentelemetry-exporter-otlp-proto-http==1.44.0",
+    "opentelemetry-instrumentation-fastapi==0.65b0",
 ]
 
 [project.optional-dependencies]
@@ -27,8 +25,15 @@ dev = [
     "pytest-httpx==0.36.0",
     "ruff==0.15.12",
     "mypy==2.0.0",
-    "datasets==4.8.5",
+    "pytest-cov==7.0.0",
+    "openapi-python-client==0.28.3",
 ]
+
+benchmark = ["datasets==5.0.1"]
+
+[project.urls]
+Repository = "https://github.com/moon-strider/ner"
+Issues = "https://github.com/moon-strider/ner/issues"
 
 [build-system]
 requires = ["hatchling==1.29.0"]
@@ -64,7 +69,6 @@ module = [
     "opentelemetry.instrumentation.*",
     "opentelemetry.sdk.*",
     "aiosqlite",
-    "ahocorasick",
 ]
 ignore_missing_imports = true
 
@@ -72,10 +76,5 @@ ignore_missing_imports = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
-    "integration: live tests against real provider; require API key",
-]
-
-[dependency-groups]
-dev = [
-    "openapi-python-client==0.28.3",
+    "integration: opt-in tests against a live provider",
 ]

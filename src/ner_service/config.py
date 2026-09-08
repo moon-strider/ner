@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +15,11 @@ class RuntimeLimits:
     max_system_prompt_length: int = 20_000
     max_label_description_length: int = 500
     max_config_id_length: int = 128
+    allowed_models: tuple[str, ...] = ()
+    max_attempts: int = 10
+    max_output_tokens: int = 16_384
+    max_few_shot_examples: int = 20
+    max_rendered_prompt_length: int = 100_000
 
 
 @dataclass(frozen=True)
@@ -32,18 +38,21 @@ class Settings(BaseSettings):
 
     ner_provider: str = Field(default="cerebras")
     ner_model: str = Field(default="llama3.1-8b")
+    allowed_models: list[str] = Field(default_factory=list)
     request_timeout_s: float = Field(default=30.0, gt=0.0)
     transport_retries: int = Field(default=2, ge=0)
 
     cerebras_api_key: SecretStr | None = None
     openai_api_key: SecretStr | None = None
     openrouter_api_key: SecretStr | None = None
-    vllm_api_key: str = Field(default="not-needed")
+    vllm_api_key: SecretStr = SecretStr("not-needed")
+    llama_cpp_api_key: SecretStr = SecretStr("not-needed")
 
     cerebras_base_url: str | None = None
     openai_base_url: str | None = None
     openrouter_base_url: str | None = None
     vllm_base_url: str | None = None
+    llama_cpp_base_url: str = "http://127.0.0.1:8080/v1"
 
     max_tokens: int = Field(default=1024, gt=0)
     otel_endpoint: str | None = None
@@ -55,6 +64,12 @@ class Settings(BaseSettings):
     max_system_prompt_length: int = Field(default=20_000, gt=0)
     max_label_description_length: int = Field(default=500, gt=0)
     max_config_id_length: int = Field(default=128, gt=0)
+    max_attempts: int = Field(default=10, gt=0)
+    max_output_tokens: int = Field(default=16_384, gt=0)
+    max_few_shot_examples: int = Field(default=20, ge=0)
+    max_rendered_prompt_length: int = Field(default=100_000, gt=0)
+    max_request_body_bytes: int = Field(default=2_000_000, gt=0)
+    ner_api_key: SecretStr | None = None
     config_db_path: str = Field(default="configs.db", min_length=1)
     cache_enabled: bool = True
     cache_ttl_seconds: int = Field(default=600, gt=0)
@@ -65,6 +80,13 @@ class Settings(BaseSettings):
     batch_concurrency: int = Field(default=10, gt=0)
     token_pricing_json: str | None = None
 
+    @field_validator("ner_api_key")
+    @classmethod
+    def _nonempty_api_key(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and not value.get_secret_value().strip():
+            raise ValueError("NER_API_KEY must be nonempty when set")
+        return value
+
     def runtime_limits(self) -> RuntimeLimits:
         return RuntimeLimits(
             max_text_length=self.max_text_length,
@@ -72,6 +94,11 @@ class Settings(BaseSettings):
             max_system_prompt_length=self.max_system_prompt_length,
             max_label_description_length=self.max_label_description_length,
             max_config_id_length=self.max_config_id_length,
+            max_attempts=self.max_attempts,
+            allowed_models=tuple(self.allowed_models),
+            max_output_tokens=self.max_output_tokens,
+            max_few_shot_examples=self.max_few_shot_examples,
+            max_rendered_prompt_length=self.max_rendered_prompt_length,
         )
 
     def token_pricing(self) -> dict[str, TokenPricing]:
@@ -95,8 +122,15 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "pricing entries require numeric input_per_million and output_per_million"
                 )
-            if input_price < 0 or output_price < 0:
-                raise ValueError("pricing values must be >= 0")
+            if (
+                isinstance(input_price, bool)
+                or isinstance(output_price, bool)
+                or not math.isfinite(input_price)
+                or not math.isfinite(output_price)
+                or input_price < 0
+                or output_price < 0
+            ):
+                raise ValueError("pricing values must be finite non-negative numbers")
             pricing[model] = TokenPricing(float(input_price), float(output_price))
         return pricing
 

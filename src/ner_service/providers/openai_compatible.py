@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from functools import partial
-from typing import Any, cast
+from typing import Any
 
 import httpx
 from pydantic import ValidationError
@@ -38,7 +38,7 @@ def _build_messages(
             {
                 "role": "assistant",
                 "content": json.dumps(
-                    {"entities": example.entities},
+                    {"entities": [entity.model_dump() for entity in example.entities]},
                     ensure_ascii=False,
                     separators=(",", ":"),
                 ),
@@ -84,13 +84,13 @@ def _build_request_body(
 
 def _extract_usage(completion: dict[str, Any]) -> dict[str, Any] | None:
     usage = completion.get("usage")
-    if usage is None:
+    if not isinstance(usage, dict):
         return None
     return {
-        "prompt_tokens": usage.get("prompt_tokens"),
-        "completion_tokens": usage.get("completion_tokens"),
-        "total_tokens": usage.get("total_tokens"),
-    }
+        key: value
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+        if type(value := usage.get(key)) is int and value >= 0
+    } or None
 
 
 def _parse_raw_entities(content: str | None, allowed_labels: set[str]) -> list[RawEntity]:
@@ -101,6 +101,8 @@ def _parse_raw_entities(content: str | None, allowed_labels: set[str]) -> list[R
     except json.JSONDecodeError as e:
         raise ProviderError(f"invalid JSON from model: {e}") from e
     try:
+        if not isinstance(payload, dict) or set(payload) != {"entities"}:
+            raise ProviderError("model output must contain only entities")
         raw = RawEntities.model_validate(payload)
     except ValidationError as e:
         raise ProviderError(f"schema mismatch from model: {e}") from e
@@ -124,11 +126,13 @@ def _json_safe(value: Any) -> Any:
 
 def _raise_provider_error_from_response(
     status_code: int,
-    body: dict[str, Any],
+    body: Any,
     headers: dict[str, str] | None = None,
 ) -> None:
-    error = body.get("error", {})
-    message = error.get("message", "provider error") if isinstance(error, dict) else str(body)
+    error = body.get("error", {}) if isinstance(body, dict) else {}
+    message = (
+        error.get("message", "provider error") if isinstance(error, dict) else "provider error"
+    )
     details = {"status_code": status_code, "body": _json_safe(body)}
     rate_limit_headers = {}
     if headers:
@@ -170,9 +174,11 @@ class OpenAICompatibleProvider:
         provider_name: str = "openai_compatible",
         circuit_breaker: CircuitBreaker | None = None,
         rate_limiter: RateLimiter | None = None,
+        token_limit_field: str = "max_completion_tokens",
     ) -> None:
         self.model = model
         self.name = provider_name
+        self._token_limit_field = token_limit_field
         self._timeout = timeout
         self._max_retries = max_retries
         self._api_key = api_key
@@ -221,6 +227,8 @@ class OpenAICompatibleProvider:
                 reasoning_effort=config.reasoning_effort,
                 temperature=0.0,
             )
+            if self._token_limit_field != "max_completion_tokens":
+                body[self._token_limit_field] = body.pop("max_completion_tokens")
             request = partial(self._post_with_status_check, body, config.model)
 
             try:
@@ -270,10 +278,21 @@ class OpenAICompatibleProvider:
                     raise ProviderError("model returned empty choices")
                 continue
 
-            content = cast(str, choices[0].get("message", {}).get("content") or "")
+            if not isinstance(choices, list) or not isinstance(choices[0], dict):
+                raise ProviderError("provider choices must contain message objects")
+            message = choices[0].get("message")
+            if not isinstance(message, dict):
+                raise ProviderError("provider choice must contain a message object")
+            if message.get("refusal"):
+                raise ProviderError("model refused extraction")
+            content = message.get("content")
+            if not isinstance(content, str):
+                raise ProviderError("provider message content must be a string")
             last_output = content
 
             try:
+                if choices[0].get("finish_reason") in {"length", "content_filter"}:
+                    raise ProviderError("model output was truncated or filtered")
                 entities = _parse_raw_entities(content, prepared.allowed_labels)
             except ProviderError as e:
                 last_error = str(e)
@@ -346,7 +365,7 @@ def _merge_usage(total: dict[str, Any], usage: dict[str, Any] | None) -> dict[st
         elif isinstance(value, dict):
             existing = result.setdefault(key, {})
             if isinstance(existing, dict):
-                _merge_usage(existing, value)
+                result[key] = _merge_usage(existing, value)
         elif key not in result:
             result[key] = value
     return result

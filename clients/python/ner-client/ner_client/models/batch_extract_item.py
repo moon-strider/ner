@@ -12,11 +12,21 @@ if TYPE_CHECKING:
     from ..models.batch_extract_item_error_type_0 import BatchExtractItemErrorType0
     from ..models.batch_extract_item_meta import BatchExtractItemMeta
     from ..models.extract_envelope import ExtractEnvelope
+
+
 T = TypeVar("T", bound="BatchExtractItem")
 
 
 @_attrs_define
 class BatchExtractItem:
+    """
+    Attributes:
+        index (int):
+        meta (BatchExtractItemMeta):
+        data (ExtractEnvelope | None | Unset):
+        error (BatchExtractItemErrorType0 | None | Unset):
+    """
+
     index: int
     meta: BatchExtractItemMeta
     data: ExtractEnvelope | None | Unset = UNSET
@@ -28,7 +38,9 @@ class BatchExtractItem:
         from ..models.extract_envelope import ExtractEnvelope
 
         index = self.index
+
         meta = self.meta.to_dict()
+
         data: dict[str, Any] | None | Unset
         if isinstance(self.data, Unset):
             data = UNSET
@@ -36,6 +48,7 @@ class BatchExtractItem:
             data = self.data.to_dict()
         else:
             data = self.data
+
         error: dict[str, Any] | None | Unset
         if isinstance(self.error, Unset):
             error = UNSET
@@ -43,13 +56,20 @@ class BatchExtractItem:
             error = self.error.to_dict()
         else:
             error = self.error
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({"index": index, "meta": meta})
+        field_dict.update(
+            {
+                "index": index,
+                "meta": meta,
+            }
+        )
         if data is not UNSET:
             field_dict["data"] = data
         if error is not UNSET:
             field_dict["error"] = error
+
         return field_dict
 
     @classmethod
@@ -60,6 +80,7 @@ class BatchExtractItem:
 
         d = dict(src_dict)
         index = d.pop("index")
+
         meta = BatchExtractItemMeta.from_dict(d.pop("meta"))
 
         def _parse_data(data: object) -> ExtractEnvelope | None | Unset:
@@ -71,6 +92,7 @@ class BatchExtractItem:
                 if not isinstance(data, dict):
                     raise TypeError()
                 data_type_0 = ExtractEnvelope.from_dict(data)
+
                 return data_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
@@ -87,13 +109,21 @@ class BatchExtractItem:
                 if not isinstance(data, dict):
                     raise TypeError()
                 error_type_0 = BatchExtractItemErrorType0.from_dict(data)
+
                 return error_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
             return cast(BatchExtractItemErrorType0 | None | Unset, data)
 
         error = _parse_error(d.pop("error", UNSET))
-        batch_extract_item = cls(index=index, meta=meta, data=data, error=error)
+
+        batch_extract_item = cls(
+            index=index,
+            meta=meta,
+            data=data,
+            error=error,
+        )
+
         batch_extract_item.additional_properties = d
         return batch_extract_item
 

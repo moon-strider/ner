@@ -11,6 +11,14 @@ T = TypeVar("T", bound="BatchExtractMeta")
 
 @_attrs_define
 class BatchExtractMeta:
+    """
+    Attributes:
+        total (int):
+        succeeded (int):
+        failed (int):
+        latency_ms (float):
+    """
+
     total: int
     succeeded: int
     failed: int
@@ -19,26 +27,44 @@ class BatchExtractMeta:
 
     def to_dict(self) -> dict[str, Any]:
         total = self.total
+
         succeeded = self.succeeded
+
         failed = self.failed
+
         latency_ms = self.latency_ms
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
-            {"total": total, "succeeded": succeeded, "failed": failed, "latency_ms": latency_ms}
+            {
+                "total": total,
+                "succeeded": succeeded,
+                "failed": failed,
+                "latency_ms": latency_ms,
+            }
         )
+
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
         total = d.pop("total")
+
         succeeded = d.pop("succeeded")
+
         failed = d.pop("failed")
+
         latency_ms = d.pop("latency_ms")
+
         batch_extract_meta = cls(
-            total=total, succeeded=succeeded, failed=failed, latency_ms=latency_ms
+            total=total,
+            succeeded=succeeded,
+            failed=failed,
+            latency_ms=latency_ms,
         )
+
         batch_extract_meta.additional_properties = d
         return batch_extract_meta
 

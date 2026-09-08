@@ -37,7 +37,7 @@ def _build_text(length: int, index: int) -> str:
     prefix = f"sample {index}: "
     repeated = (SEED_SENTENCE * ((length // len(SEED_SENTENCE)) + 2)).strip()
     body = repeated[: max(length - len(prefix), 1)]
-    return prefix + body
+    return (prefix + body)[:length]
 
 
 def _percentile(values: Sequence[float], percentile: float) -> float:
@@ -219,6 +219,10 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
     args.text_lengths = [int(item) for item in str(args.text_lengths).split(",") if item.strip()]
+    if args.texts_count < 1 or args.concurrency < 1 or not args.text_lengths:
+        parser.error("texts-count, concurrency, and text-lengths must be positive")
+    if any(length < 1 for length in args.text_lengths) or args.retries < 1:
+        parser.error("lengths and retries must be positive")
     report = asyncio.run(_run(args))
     payload = json.dumps(report, ensure_ascii=False, indent=2)
     if args.output is not None:

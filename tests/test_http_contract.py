@@ -140,7 +140,6 @@ def test_provider_errors_use_redacted_error_envelope() -> None:
     assert payload["error"]["request_id"] == "req-3"
     assert payload["error"]["details"]["provider"] == {
         "status_code": 429,
-        "headers": {"retry-after": "3"},
     }
 
 
@@ -181,7 +180,7 @@ def test_batch_extract_returns_mixed_results() -> None:
     assert payload["items"][0]["meta"]["attempts"] == 2
     assert payload["items"][1]["index"] == 1
     assert payload["items"][1]["error"] == {
-        "code": "ProviderRateLimitError",
+        "code": "provider_rate_limited",
         "message": "provider rate limit exceeded",
     }
     assert payload["items"][1]["meta"]["attempts"] == 0

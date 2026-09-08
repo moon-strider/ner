@@ -1,31 +1,28 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
+from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException
 
 from ner_service.cache import MemoryCache, ResultCache
 from ner_service.config import Settings, get_settings
 from ner_service.config_store import ConfigNotFoundError, PromptTemplateError
+from ner_service.errors import provider_details, provider_headers, public_error
 from ner_service.metrics import setup_metrics
-from ner_service.providers.base import (
-    ProviderAuthError,
-    ProviderBadRequestError,
-    ProviderError,
-    ProviderPermissionError,
-    ProviderQuotaError,
-    ProviderRateLimitError,
-    ProviderUpstreamError,
-)
+from ner_service.middleware import RequestBoundaryMiddleware
+from ner_service.providers.base import ProviderError
 from ner_service.providers.registry import get_provider
 from ner_service.routes import router as v1_router
 from ner_service.service import NerService
 from ner_service.stores import SQLiteStore
 from ner_service.telemetry import setup_tracing
 
-logger = __import__("logging").getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 async def lifespan(app: FastAPI) -> Any:
@@ -37,6 +34,7 @@ async def lifespan(app: FastAPI) -> Any:
             yield
         finally:
             await injected_service.aclose()
+            app.state.tracer_provider.shutdown()
         return
     provider = get_provider(settings)
     cache = None
@@ -55,19 +53,20 @@ async def lifespan(app: FastAPI) -> Any:
         token_pricing=settings.token_pricing(),
     )
     try:
+        await app.state.service.ready()
         yield
     finally:
         await app.state.service.aclose()
+        app.state.tracer_provider.shutdown()
 
 
 def create_app(settings: Settings | None = None, service: NerService | None = None) -> FastAPI:
     app = FastAPI(
         title="NER Service",
-        version="1.0",
+        version="1.1.0",
         lifespan=lifespan,
     )
-    if settings is not None:
-        app.state.settings = settings
+    app.state.settings = settings if settings is not None else get_settings()
     if service is not None:
         app.state.service = service
 
@@ -75,33 +74,44 @@ def create_app(settings: Settings | None = None, service: NerService | None = No
     setup_metrics(app)
     setup_tracing(app)
 
-    _register_middleware(app)
+    app.add_middleware(
+        RequestBoundaryMiddleware, max_body_bytes=app.state.settings.max_request_body_bytes
+    )
     _register_exception_handlers(app)
+    original_openapi = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        schema = original_openapi()
+        for path in schema.get("paths", {}).values():
+            for operation in path.values():
+                if (
+                    isinstance(operation, dict)
+                    and operation.get("security")
+                    and {} not in operation["security"]
+                ):
+                    operation["security"].append({})
+        return schema
+
+    app.openapi = openapi  # type: ignore[method-assign]
     return app
 
 
-def _register_middleware(app: FastAPI) -> None:
-    @app.middleware("http")
-    async def request_id_middleware(request: Request, call_next: Any) -> Response:
-        request_id = request.headers.get("x-request-id") or str(__import__("uuid").uuid4())
-        request.state.request_id = request_id
-        response: Response = await call_next(request)
-        response.headers["x-request-id"] = request_id
-        return response
-
-
 def _register_exception_handlers(app: FastAPI) -> None:
-    @app.exception_handler(ConfigNotFoundError)
-    async def _config_not_found(request: Request, exc: ConfigNotFoundError) -> JSONResponse:
-        return _error_response(request, 404, "config_not_found", f"config not found: {exc}")
+    async def known_error(request: Request, exc: Exception) -> JSONResponse:
+        status, code, message = public_error(exc)
+        details = provider_details(exc) if isinstance(exc, ProviderError) else {}
+        headers = provider_headers(exc) if isinstance(exc, ProviderError) else None
+        return _error_response(
+            request,
+            status,
+            code,
+            message,
+            details={"provider": details} if details else None,
+            headers=headers,
+        )
 
-    @app.exception_handler(PromptTemplateError)
-    async def _prompt_template(request: Request, exc: PromptTemplateError) -> JSONResponse:
-        return _error_response(request, 422, "prompt_template_error", str(exc))
-
-    @app.exception_handler(ValueError)
-    async def _value_error(request: Request, exc: ValueError) -> JSONResponse:
-        return _error_response(request, 422, "invalid_request", str(exc))
+    for kind in (ConfigNotFoundError, PromptTemplateError, ValueError, ProviderError):
+        app.add_exception_handler(kind, known_error)
 
     @app.exception_handler(RequestValidationError)
     async def _validation(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -116,68 +126,14 @@ def _register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(HTTPException)
     async def _http(request: Request, exc: HTTPException) -> JSONResponse:
         message = str(exc.detail) if exc.detail else "http error"
-        return _error_response(request, exc.status_code, "http_error", message)
-
-    @app.exception_handler(ProviderAuthError)
-    async def _auth(request: Request, exc: ProviderAuthError) -> JSONResponse:
-        return _provider_response(
-            request,
-            502,
-            exc,
-            "provider_auth_failed",
-            prefix="provider auth failed",
+        return _error_response(
+            request, exc.status_code, "http_error", message, headers=dict(exc.headers or {})
         )
-
-    @app.exception_handler(ProviderRateLimitError)
-    async def _rate(request: Request, exc: ProviderRateLimitError) -> JSONResponse:
-        return _provider_response(request, 429, exc, "provider_rate_limited")
-
-    @app.exception_handler(ProviderQuotaError)
-    async def _quota(request: Request, exc: ProviderQuotaError) -> JSONResponse:
-        return _provider_response(request, 402, exc, "provider_quota_exhausted")
-
-    @app.exception_handler(ProviderPermissionError)
-    async def _permission(request: Request, exc: ProviderPermissionError) -> JSONResponse:
-        return _provider_response(request, 403, exc, "provider_permission_denied")
-
-    @app.exception_handler(ProviderBadRequestError)
-    async def _bad(request: Request, exc: ProviderBadRequestError) -> JSONResponse:
-        return _provider_response(request, 400, exc, "provider_bad_request")
-
-    @app.exception_handler(ProviderUpstreamError)
-    async def _upstream(request: Request, exc: ProviderUpstreamError) -> JSONResponse:
-        return _provider_response(request, 502, exc, "provider_upstream_error")
-
-    @app.exception_handler(ProviderError)
-    async def _provider(request: Request, exc: ProviderError) -> JSONResponse:
-        return _provider_response(request, 502, exc, "provider_error")
 
     @app.exception_handler(Exception)
     async def _unexpected(request: Request, exc: Exception) -> JSONResponse:
         logger.exception("unexpected request failure", exc_info=exc)
         return _error_response(request, 500, "internal_error", "internal server error")
-
-
-def _provider_response(
-    request: Request,
-    status_code: int,
-    exc: ProviderError,
-    code: str,
-    *,
-    prefix: str | None = None,
-) -> JSONResponse:
-    message = f"{prefix}: {exc}" if prefix else str(exc)
-    details: dict[str, Any] = {}
-    if exc.details:
-        details["provider"] = _sanitize_error_details(exc.details)
-    return _error_response(
-        request,
-        status_code,
-        code,
-        message,
-        details=details or None,
-        headers=exc.headers,
-    )
 
 
 def _error_response(
@@ -207,7 +163,7 @@ def _request_id(request: Request) -> str:
     value = getattr(request.state, "request_id", None)
     if isinstance(value, str) and value:
         return value
-    return str(__import__("uuid").uuid4())
+    return str(uuid4())
 
 
 def _validation_errors(exc: RequestValidationError) -> list[dict[str, Any]]:
@@ -220,29 +176,6 @@ def _validation_errors(exc: RequestValidationError) -> list[dict[str, Any]]:
         }
         errors.append(item)
     return errors
-
-
-def _sanitize_error_details(details: dict[str, Any]) -> dict[str, Any]:
-    sanitized: dict[str, Any] = {}
-    for key, value in details.items():
-        lower = key.lower()
-        if lower in {"body", "authorization", "api_key", "apikey", "token"}:
-            continue
-        if isinstance(value, dict):
-            sanitized[key] = _sanitize_error_details(value)
-        elif isinstance(value, list):
-            sanitized[key] = [_sanitize_error_value(item) for item in value]
-        else:
-            sanitized[key] = value
-    return sanitized
-
-
-def _sanitize_error_value(value: Any) -> Any:
-    if isinstance(value, dict):
-        return _sanitize_error_details(value)
-    if isinstance(value, list):
-        return [_sanitize_error_value(item) for item in value]
-    return value
 
 
 app = create_app()

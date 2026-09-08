@@ -68,6 +68,9 @@ class ConfigStore:
             raise ConfigNotFoundError(config_id)
         await self._backend.delete(config_id)
 
+    async def aclose(self) -> None:
+        await self._backend.aclose()
+
     async def healthcheck(self) -> dict[str, Any]:
         return await self._backend.healthcheck()
 
@@ -93,7 +96,9 @@ def render_system_prompt(
     prepared: PreparedNERConfig,
     prompt_payload: dict[str, Any],
 ) -> str:
-    template = prepared.config.system_prompt or prepared.default_system_prompt
+    if prepared.config.system_prompt is None:
+        return prepared.default_system_prompt
+    template = prepared.config.system_prompt
     if "{" not in template and "}" not in template:
         return template
 
@@ -104,7 +109,7 @@ def render_system_prompt(
     pieces: list[str] = []
     formatter = string.Formatter()
     try:
-        parsed = formatter.parse(template)
+        parsed = list(formatter.parse(template))
     except ValueError as e:
         raise PromptTemplateError(str(e)) from e
 

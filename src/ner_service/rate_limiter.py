@@ -75,12 +75,16 @@ class RateLimiter:
         self._provider_sem: dict[str, asyncio.Semaphore] = {}
 
     async def acquire(self, provider: str) -> None:
-        await self._global.acquire()
         semaphore = self._provider_sem.setdefault(
             provider,
             asyncio.Semaphore(self._provider_concurrency),
         )
         await semaphore.acquire()
+        try:
+            await self._global.acquire()
+        except BaseException:
+            semaphore.release()
+            raise
 
     def release(self, provider: str) -> None:
         semaphore = self._provider_sem.get(provider)

@@ -64,7 +64,7 @@ def _load_conll(limit: int | None, cache_path: Path) -> list[tuple[str, list[Spa
     try:
         from datasets import ClassLabel, load_dataset
     except ImportError:
-        sys.exit("datasets package is required. Install with: uv sync --extra dev")
+        sys.exit("datasets package is required. Install with: uv sync --extra benchmark")
 
     ds = load_dataset("eriktks/conll2003", split="test", revision="refs/convert/parquet")
     ner_feature = ds.features["ner_tags"]
@@ -222,6 +222,7 @@ async def _run(
     provider = get_provider(settings)
     service = NerService(provider, default_model=settings.ner_model, max_tokens=settings.max_tokens)
 
+    rows = _load_conll(limit, dataset_cache)
     labels = list(CONLL_LABEL_MAP.values())
     config = NERConfig(
         labels=labels,
@@ -233,7 +234,6 @@ async def _run(
         reasoning_effort=reasoning_effort,
     )
     config_id = (await service.create_config(config)).id
-    rows = _load_conll(limit, dataset_cache)
     print(
         f"Loaded {len(rows)} examples; mode={'offsets' if require_offsets else 'dictionary'}; "
         f"model={settings.ner_model}; reasoning_effort={reasoning_effort or 'default'}; "
@@ -263,19 +263,23 @@ async def _run(
     durations: list[float] = []
     usage_total: dict[str, Any] = {}
     total = len(tasks)
-    for done, coro in enumerate(asyncio.as_completed(tasks), 1):
-        score = await coro
-        tp += score.tp
-        fp += score.fp
-        fn += score.fn
-        errors += int(score.error)
-        durations.append(score.duration_s)
-        _merge_usage(usage_total, score.usage)
-        if done % 25 == 0 or done == total:
-            avg = sum(durations) / len(durations) if durations else 0.0
-            print(f"[{done}/{total}] tp={tp} fp={fp} fn={fn} errors={errors} avg_s={avg:.3f}")
-
-    await service.aclose()
+    try:
+        for done, coro in enumerate(asyncio.as_completed(tasks), 1):
+            score = await coro
+            tp += score.tp
+            fp += score.fp
+            fn += score.fn
+            errors += int(score.error)
+            durations.append(score.duration_s)
+            _merge_usage(usage_total, score.usage)
+            if done % 25 == 0 or done == total:
+                avg = sum(durations) / len(durations) if durations else 0.0
+                print(f"[{done}/{total}] tp={tp} fp={fp} fn={fn} errors={errors} avg_s={avg:.3f}")
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await service.aclose()
 
     elapsed = time.perf_counter() - started
     precision = tp / (tp + fp) if (tp + fp) else 0.0
@@ -363,6 +367,8 @@ def main() -> None:
         help="max concurrent in-flight requests (default: 40)",
     )
     args = parser.parse_args()
+    if args.concurrency < 1 or args.retries < 1 or (args.limit is not None and args.limit < 1):
+        parser.error("concurrency, retries, and limit must be positive")
     asyncio.run(
         _run(
             args.limit,

@@ -13,6 +13,14 @@ T = TypeVar("T", bound="Entity")
 
 @_attrs_define
 class Entity:
+    """
+    Attributes:
+        text (str):
+        label (str):
+        start (int | None | Unset):
+        end (int | None | Unset):
+    """
+
     text: str
     label: str
     start: int | None | Unset = UNSET
@@ -21,30 +29,41 @@ class Entity:
 
     def to_dict(self) -> dict[str, Any]:
         text = self.text
+
         label = self.label
+
         start: int | None | Unset
         if isinstance(self.start, Unset):
             start = UNSET
         else:
             start = self.start
+
         end: int | None | Unset
         if isinstance(self.end, Unset):
             end = UNSET
         else:
             end = self.end
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({"text": text, "label": label})
+        field_dict.update(
+            {
+                "text": text,
+                "label": label,
+            }
+        )
         if start is not UNSET:
             field_dict["start"] = start
         if end is not UNSET:
             field_dict["end"] = end
+
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
         text = d.pop("text")
+
         label = d.pop("label")
 
         def _parse_start(data: object) -> int | None | Unset:
@@ -64,7 +83,14 @@ class Entity:
             return cast(int | None | Unset, data)
 
         end = _parse_end(d.pop("end", UNSET))
-        entity = cls(text=text, label=label, start=start, end=end)
+
+        entity = cls(
+            text=text,
+            label=label,
+            start=start,
+            end=end,
+        )
+
         entity.additional_properties = d
         return entity
 
