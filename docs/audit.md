@@ -50,12 +50,17 @@ The original 80 tests had passed, so the added tests exercise previously missed 
   environment. [Before/after advisory summary](validation/dependencies.json).
 - Gitleaks 8.30.1: 32 original Git commits scanned, no detected leaks; current
   source scan also clean. Secret scanners cannot prove that no secret exists.
-- Docker Compose 5.5.1 successfully validates the complete observability configuration
-  with `.env.example`. No local Docker daemon was available, so image execution and
-  the complete monitoring stack remain unverified.
-- The new GitHub CI workflow is prepared for Python 3.12/3.13, SDK drift, package
-  builds, dependency audits, and non-root container readiness. Remote validation
-  results will be recorded after the pull request checks complete.
+- Docker Compose 5.5.1 validates the complete observability configuration with
+  `.env.example`. GitHub CI also built and ran the Docker image, verified the
+  non-root user, received HTTP 200 from readiness, confirmed SQLite database
+  creation, and validated Compose configuration. The complete monitoring stack
+  was not run.
+- [GitHub CI run 32](https://github.com/moon-strider/ner/actions/runs/34276605278)
+  passed all three jobs for the audited code in
+  [PR #1](https://github.com/moon-strider/ner/pull/1): Python 3.12/3.13 tests,
+  lint/format/type checks, SDK drift, service/client distribution builds,
+  dependency audit, and the container smoke check. Python 3.12 reported 149
+  passing tests and 92.14% statement coverage; the dependency audit was clean.
 
 Two third-party deprecation warnings from the current Starlette/httpx/AnyIO test
 stack are visible; they do not affect test outcomes and were not hidden.
