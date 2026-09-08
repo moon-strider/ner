@@ -11,11 +11,21 @@ from ..types import UNSET, Unset
 if TYPE_CHECKING:
     from ..models.entity import Entity
     from ..models.extract_response_data_usage_type_0 import ExtractResponseDataUsageType0
+
+
 T = TypeVar("T", bound="ExtractResponseData")
 
 
 @_attrs_define
 class ExtractResponseData:
+    """
+    Attributes:
+        entities (list[Entity]):
+        model (str):
+        provider (str):
+        usage (ExtractResponseDataUsageType0 | None | Unset):
+    """
+
     entities: list[Entity]
     model: str
     provider: str
@@ -29,8 +39,11 @@ class ExtractResponseData:
         for entities_item_data in self.entities:
             entities_item = entities_item_data.to_dict()
             entities.append(entities_item)
+
         model = self.model
+
         provider = self.provider
+
         usage: dict[str, Any] | None | Unset
         if isinstance(self.usage, Unset):
             usage = UNSET
@@ -38,11 +51,19 @@ class ExtractResponseData:
             usage = self.usage.to_dict()
         else:
             usage = self.usage
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({"entities": entities, "model": model, "provider": provider})
+        field_dict.update(
+            {
+                "entities": entities,
+                "model": model,
+                "provider": provider,
+            }
+        )
         if usage is not UNSET:
             field_dict["usage"] = usage
+
         return field_dict
 
     @classmethod
@@ -55,8 +76,11 @@ class ExtractResponseData:
         _entities = d.pop("entities")
         for entities_item_data in _entities:
             entities_item = Entity.from_dict(entities_item_data)
+
             entities.append(entities_item)
+
         model = d.pop("model")
+
         provider = d.pop("provider")
 
         def _parse_usage(data: object) -> ExtractResponseDataUsageType0 | None | Unset:
@@ -68,13 +92,21 @@ class ExtractResponseData:
                 if not isinstance(data, dict):
                     raise TypeError()
                 usage_type_0 = ExtractResponseDataUsageType0.from_dict(data)
+
                 return usage_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
             return cast(ExtractResponseDataUsageType0 | None | Unset, data)
 
         usage = _parse_usage(d.pop("usage", UNSET))
-        extract_response_data = cls(entities=entities, model=model, provider=provider, usage=usage)
+
+        extract_response_data = cls(
+            entities=entities,
+            model=model,
+            provider=provider,
+            usage=usage,
+        )
+
         extract_response_data.additional_properties = d
         return extract_response_data
 

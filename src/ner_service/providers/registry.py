@@ -86,7 +86,7 @@ def _vllm_provider(settings: Settings) -> NerProvider:
     base_url = settings.vllm_base_url
     if not base_url:
         raise RuntimeError("VLLM_BASE_URL is required when NER_PROVIDER=vllm")
-    api_key = settings.vllm_api_key or "not-needed"
+    api_key = settings.vllm_api_key.get_secret_value() or "not-needed"
     return OpenAICompatibleProvider(
         api_key=api_key,
         base_url=base_url,
@@ -99,11 +99,26 @@ def _vllm_provider(settings: Settings) -> NerProvider:
     )
 
 
+def _llama_cpp_provider(settings: Settings) -> NerProvider:
+    return OpenAICompatibleProvider(
+        api_key=settings.llama_cpp_api_key.get_secret_value(),
+        base_url=settings.llama_cpp_base_url,
+        model=settings.ner_model,
+        timeout=settings.request_timeout_s,
+        max_retries=settings.transport_retries,
+        provider_name="llama_cpp",
+        circuit_breaker=_circuit_breaker(settings),
+        rate_limiter=_rate_limiter(settings),
+        token_limit_field="max_tokens",
+    )
+
+
 _REGISTRY: dict[str, Callable[[Settings], NerProvider]] = {
     "openai": _openai_provider,
     "cerebras": _cerebras_provider,
     "openrouter": _openrouter_provider,
     "vllm": _vllm_provider,
+    "llama_cpp": _llama_cpp_provider,
 }
 
 

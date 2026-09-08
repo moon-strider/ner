@@ -1,0 +1,275 @@
+{
+  "ready": {
+    "status": "ready",
+    "provider": "llama_cpp",
+    "model": "smollm2-1.7b",
+    "config_store": {
+      "backend": "sqlite",
+      "status": "ok"
+    }
+  },
+  "elapsed_s": 6.109697281997796,
+  "results": [
+    {
+      "scenario": "stored config",
+      "response": {
+        "data": {
+          "entities": [
+            {
+              "text": "Berlin",
+              "label": "LOCATION",
+              "start": 17,
+              "end": 23
+            }
+          ],
+          "model": "smollm2-1.7b",
+          "provider": "llama_cpp",
+          "usage": {
+            "prompt_tokens": 156,
+            "completion_tokens": 20,
+            "total_tokens": 176
+          }
+        },
+        "meta": {
+          "cache_hit": false,
+          "request_id": "9a804dba-0e35-47ae-9414-35572eeee646",
+          "latency_ms": 2074.8247130031814,
+          "attempts": 1,
+          "warnings": []
+        }
+      }
+    },
+    {
+      "scenario": "repeat",
+      "response": {
+        "data": {
+          "entities": [
+            {
+              "text": "Berlin",
+              "label": "LOCATION",
+              "start": 17,
+              "end": 23
+            }
+          ],
+          "model": "smollm2-1.7b",
+          "provider": "llama_cpp"
+        },
+        "meta": {
+          "cache_hit": true,
+          "request_id": "11ed0b47-47a4-4c42-aa87-70595cb39ac0",
+          "latency_ms": 0.6221789990377147,
+          "attempts": 0,
+          "warnings": []
+        }
+      }
+    },
+    {
+      "scenario": "inline config",
+      "response": {
+        "data": {
+          "entities": [],
+          "model": "smollm2-1.7b",
+          "provider": "llama_cpp",
+          "usage": {
+            "prompt_tokens": 154,
+            "completion_tokens": 6,
+            "total_tokens": 160
+          }
+        },
+        "meta": {
+          "cache_hit": false,
+          "request_id": "eaf83e59-59d3-4498-9153-4ee22d083739",
+          "latency_ms": 382.49064900082885,
+          "attempts": 1,
+          "warnings": []
+        }
+      }
+    },
+    {
+      "scenario": "prompt and few-shot: Travel",
+      "response": {
+        "data": {
+          "entities": [
+            {
+              "text": "Paris",
+              "label": "LOCATION",
+              "start": 11,
+              "end": 16
+            }
+          ],
+          "model": "smollm2-1.7b",
+          "provider": "llama_cpp",
+          "usage": {
+            "prompt_tokens": 135,
+            "completion_tokens": 16,
+            "total_tokens": 151
+          }
+        },
+        "meta": {
+          "cache_hit": false,
+          "request_id": "3731de96-50fc-45d1-a37f-1e64d3f3a19b",
+          "latency_ms": 1572.1166480034299,
+          "attempts": 1,
+          "warnings": []
+        }
+      }
+    },
+    {
+      "scenario": "prompt and few-shot: Geography",
+      "response": {
+        "data": {
+          "entities": [
+            {
+              "text": "Paris",
+              "label": "LOCATION",
+              "start": 11,
+              "end": 16
+            }
+          ],
+          "model": "smollm2-1.7b",
+          "provider": "llama_cpp",
+          "usage": {
+            "prompt_tokens": 135,
+            "completion_tokens": 16,
+            "total_tokens": 151
+          }
+        },
+        "meta": {
+          "cache_hit": false,
+          "request_id": "4ee4ef76-9ee3-4392-a121-37b68e59c382",
+          "latency_ms": 1045.1826909993542,
+          "attempts": 1,
+          "warnings": []
+        }
+      }
+    },
+    {
+      "scenario": "mixed batch",
+      "response": {
+        "items": [
+          {
+            "index": 0,
+            "data": {
+              "data": {
+                "entities": [
+                  {
+                    "text": "Ada",
+                    "label": "PERSON",
+                    "start": 0,
+                    "end": 3
+                  }
+                ],
+                "model": "smollm2-1.7b",
+                "provider": "llama_cpp",
+                "usage": {
+                  "prompt_tokens": 155,
+                  "completion_tokens": 21,
+                  "total_tokens": 176
+                }
+              },
+              "meta": {
+                "cache_hit": false,
+                "request_id": "bebee807-afb7-4004-8e5c-4e15674715c9",
+                "latency_ms": 886.9760800007498,
+                "attempts": 1,
+                "warnings": []
+              }
+            },
+            "meta": {
+              "request_id": "bebee807-afb7-4004-8e5c-4e15674715c9",
+              "cache_hit": false,
+              "latency_ms": 886.9760800007498,
+              "attempts": 1,
+              "warnings": []
+            }
+          },
+          {
+            "index": 1,
+            "error": {
+              "code": "config_not_found",
+              "message": "config not found"
+            },
+            "meta": {
+              "request_id": "bebee807-afb7-4004-8e5c-4e15674715c9",
+              "cache_hit": false,
+              "latency_ms": 3.810808000707766,
+              "attempts": 0,
+              "warnings": []
+            }
+          }
+        ],
+        "meta": {
+          "total": 2,
+          "succeeded": 1,
+          "failed": 1,
+          "latency_ms": 887.0817049973994
+        }
+      }
+    }
+  ],
+  "note": "Checks API behavior and source offsets, not NER accuracy.",
+  "sdk_sync": {
+    "data": {
+      "entities": [
+        {
+          "text": "Berlin",
+          "label": "LOCATION",
+          "start": 10,
+          "end": 16
+        }
+      ],
+      "model": "smollm2-1.7b",
+      "provider": "llama_cpp",
+      "usage": {
+        "prompt_tokens": 142,
+        "completion_tokens": 31,
+        "total_tokens": 173
+      }
+    },
+    "meta": {
+      "request_id": "956c2319-5847-4811-b996-33c7bb1194db",
+      "latency_ms": 1061.4203920013097,
+      "attempts": 1,
+      "cache_hit": false,
+      "warnings": []
+    }
+  },
+  "sdk_async": {
+    "data": {
+      "entities": [
+        {
+          "text": "Rome",
+          "label": "LOCATION",
+          "start": 10,
+          "end": 14
+        }
+      ],
+      "model": "smollm2-1.7b",
+      "provider": "llama_cpp",
+      "usage": {
+        "prompt_tokens": 142,
+        "completion_tokens": 30,
+        "total_tokens": 172
+      }
+    },
+    "meta": {
+      "request_id": "551aa83b-c8bb-48d1-8fff-4a72ece292ac",
+      "latency_ms": 1048.2249790002243,
+      "attempts": 1,
+      "cache_hit": false,
+      "warnings": []
+    }
+  },
+  "restart_persistence": "passed",
+  "runtime": {
+    "llama_cpp": "b10867 / f3f1a8f27",
+    "model": "HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF",
+    "revision": "2d4a76a30b4af41ecd395c35725ac11688d4cfe4",
+    "model_sha256": "decd2598bc2c8ed08c19adc3c8fdd461ee19ed5708679d1c54ef54a5a30d4f33",
+    "quantization": "Q4_K_M",
+    "threads": 4,
+    "context": 4096,
+    "gpu_layers": 0,
+    "cpu": "AMD EPYC 9V74 (virtualized)"
+  }
+}

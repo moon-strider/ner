@@ -9,11 +9,19 @@ from attrs import field as _attrs_field
 if TYPE_CHECKING:
     from ..models.batch_extract_item import BatchExtractItem
     from ..models.batch_extract_meta import BatchExtractMeta
+
+
 T = TypeVar("T", bound="BatchExtractResponse")
 
 
 @_attrs_define
 class BatchExtractResponse:
+    """
+    Attributes:
+        items (list[BatchExtractItem]):
+        meta (BatchExtractMeta):
+    """
+
     items: list[BatchExtractItem]
     meta: BatchExtractMeta
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -23,10 +31,18 @@ class BatchExtractResponse:
         for items_item_data in self.items:
             items_item = items_item_data.to_dict()
             items.append(items_item)
+
         meta = self.meta.to_dict()
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({"items": items, "meta": meta})
+        field_dict.update(
+            {
+                "items": items,
+                "meta": meta,
+            }
+        )
+
         return field_dict
 
     @classmethod
@@ -39,9 +55,16 @@ class BatchExtractResponse:
         _items = d.pop("items")
         for items_item_data in _items:
             items_item = BatchExtractItem.from_dict(items_item_data)
+
             items.append(items_item)
+
         meta = BatchExtractMeta.from_dict(d.pop("meta"))
-        batch_extract_response = cls(items=items, meta=meta)
+
+        batch_extract_response = cls(
+            items=items,
+            meta=meta,
+        )
+
         batch_extract_response.additional_properties = d
         return batch_extract_response
 

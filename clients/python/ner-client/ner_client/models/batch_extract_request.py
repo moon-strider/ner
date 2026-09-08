@@ -8,11 +8,18 @@ from attrs import field as _attrs_field
 
 if TYPE_CHECKING:
     from ..models.extract_request import ExtractRequest
+
+
 T = TypeVar("T", bound="BatchExtractRequest")
 
 
 @_attrs_define
 class BatchExtractRequest:
+    """
+    Attributes:
+        items (list[ExtractRequest]):
+    """
+
     items: list[ExtractRequest]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -21,9 +28,15 @@ class BatchExtractRequest:
         for items_item_data in self.items:
             items_item = items_item_data.to_dict()
             items.append(items_item)
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({"items": items})
+        field_dict.update(
+            {
+                "items": items,
+            }
+        )
+
         return field_dict
 
     @classmethod
@@ -35,8 +48,13 @@ class BatchExtractRequest:
         _items = d.pop("items")
         for items_item_data in _items:
             items_item = ExtractRequest.from_dict(items_item_data)
+
             items.append(items_item)
-        batch_extract_request = cls(items=items)
+
+        batch_extract_request = cls(
+            items=items,
+        )
+
         batch_extract_request.additional_properties = d
         return batch_extract_request
 

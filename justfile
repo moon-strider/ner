@@ -1,49 +1,40 @@
 test:
-    uv run pytest -m "not integration" -v
-
-test-integration:
-    uv run pytest -m integration -v
+    uv run --frozen --extra dev pytest -m "not integration"
 
 lint:
-    uv run ruff check .
+    uv run --frozen --extra dev ruff check .
 
 fmt:
-    uv run ruff format .
+    uv run --frozen --extra dev ruff format .
+
+format-check:
+    uv run --frozen --extra dev ruff format --check .
 
 typecheck:
-    uv run mypy src
+    uv run --frozen --extra dev mypy src
 
-check: lint fmt typecheck test
-
-benchmark:
-    uv run --extra dev python scripts/benchmark_conll.py --model llama3.1-8b --concurrency 40
-
-profile:
-    uv run python scripts/profile.py --provider cerebras --model llama3.1-8b --texts-count 4 --concurrency 2 --text-lengths 64,256,1024
-
-clean:
-    rm -rf .venv/ __pycache__/ *.egg-info/ dist/ build/
-    rm -rf .pytest_cache/ .mypy_cache/ .ruff_cache/
-    find . -name "*.pyc" -delete
-    find . -name "*.pyo" -delete
+check: lint format-check typecheck test
 
 run:
-    uv run uvicorn ner_service.main:app --host 0.0.0.0 --port 8000
+    uv run --frozen uvicorn ner_service.main:app --host 127.0.0.1 --port 8000
 
 build:
     docker build -t ner-service .
 
 generate-client:
-    uv run python scripts/generate_client.py
+    uv run --frozen --extra dev python scripts/generate_client.py
+
+check-client:
+    uv run --frozen --extra dev python scripts/generate_client.py --check
 
 observe-up:
-    docker compose up -d --build
+    docker compose --profile observability up -d --build
 
 observe-down:
-    docker compose down -v
+    docker compose --profile observability down
 
 observe-logs:
-    docker compose logs -f ner-service prometheus grafana
+    docker compose --profile observability logs -f
 
-bench-offsets:
-    CEREBRAS_API_KEY={{ env_var('CEREBRAS_API_KEY') }} uv run --extra dev python scripts/benchmark_conll.py --model llama3.1-8b --concurrency 40 --require-offsets
+smoke:
+    uv run --frozen python scripts/smoke.py

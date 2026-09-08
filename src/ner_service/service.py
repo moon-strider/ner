@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 
 from pydantic import ValidationError
 
@@ -13,8 +15,7 @@ from ner_service.config_store import (
     render_system_prompt,
 )
 from ner_service.metrics import MetricsCollector
-from ner_service.offsets import canonicalize_entities
-from ner_service.offsets_trie import attach_offsets_trie
+from ner_service.offsets import attach_offsets, canonicalize_entities
 from ner_service.providers.base import NerProvider
 from ner_service.schemas import (
     ExtractRequest,
@@ -43,6 +44,7 @@ class NerService:
         self._max_tokens = max_tokens
         self._limits = limits or RuntimeLimits()
         self._configs = ConfigStore(config_store)
+        self._config_lock = asyncio.Lock()
         self._cache = cache
         self._token_pricing = token_pricing or {}
         self._metrics = MetricsCollector()
@@ -58,27 +60,31 @@ class NerService:
         return await self._configs.list()
 
     async def get_config(self, config_id: str) -> NERConfigRecord:
+        self._validate_config_id(config_id)
         prepared = await self._configs.get(config_id)
         return NERConfigRecord(id=config_id, config=prepared.config)
 
     async def put_config(self, config_id: str, config: NERConfig) -> NERConfigRecord:
-        self._validate_config_id(config_id)
-        return await self._configs.put(config_id, self._prepare_runtime_config(config))
+        async with self._config_lock:
+            self._validate_config_id(config_id)
+            return await self._configs.put(config_id, self._prepare_runtime_config(config))
 
     async def patch_config(self, config_id: str, patch: NERConfigPatch) -> NERConfigRecord:
-        self._validate_config_id(config_id)
-        current = (await self._configs.get(config_id)).config
-        data = current.model_dump()
-        data.update(patch.model_dump(exclude_unset=True))
-        try:
-            config = NERConfig.model_validate(data)
-        except ValidationError as e:
-            raise ValueError(str(e)) from e
-        return await self._configs.put(config_id, self._prepare_runtime_config(config))
+        async with self._config_lock:
+            self._validate_config_id(config_id)
+            current = (await self._configs.get(config_id)).config
+            data = current.model_dump()
+            data.update(patch.model_dump(exclude_unset=True))
+            try:
+                config = NERConfig.model_validate(data)
+            except ValidationError as e:
+                raise ValueError("patch contains invalid config values") from e
+            return await self._configs.put(config_id, self._prepare_runtime_config(config))
 
     async def delete_config(self, config_id: str) -> None:
-        self._validate_config_id(config_id)
-        await self._configs.delete(config_id)
+        async with self._config_lock:
+            self._validate_config_id(config_id)
+            await self._configs.delete(config_id)
 
     async def ready(self) -> dict[str, object]:
         return {
@@ -89,15 +95,35 @@ class NerService:
         }
 
     async def extract(self, request: ExtractRequest) -> ExtractResponse:
+        started = time.perf_counter()
+        model = self._default_model
+        try:
+            response = await self._extract(request)
+            model = response.model
+        except Exception as exc:
+            self._metrics.record_attempt(
+                self._provider.name, model, (time.perf_counter() - started) * 1000, False
+            )
+            self._metrics.record_error(self._provider.name, type(exc).__name__)
+            raise
+        self._metrics.record_attempt(
+            self._provider.name, model, (time.perf_counter() - started) * 1000, True
+        )
+        return response
+
+    async def _extract(self, request: ExtractRequest) -> ExtractResponse:
         self._validate_request(request)
         prepared = await self._resolve_config(request)
-        config_key = self._cache_key(prepared)
+        system_prompt = render_system_prompt(prepared, request.prompt_payload)
+        if len(system_prompt) > self._limits.max_rendered_prompt_length:
+            raise ValueError("rendered system prompt exceeds configured limit")
+        config_key = self._cache_key(prepared, system_prompt)
         cached = self._cache.get(request.text, config_key) if self._cache is not None else None
         if cached is not None:
             self._metrics.record_cache("hit")
-            return ExtractResponse.model_validate(cached)
+            response = ExtractResponse.model_validate(cached)
+            return response.model_copy(update={"usage": None, "attempts": 0, "cache_hit": True})
         self._metrics.record_cache("miss")
-        system_prompt = render_system_prompt(prepared, request.prompt_payload)
         raw = await self._provider.extract(
             request.text,
             prepared=prepared,
@@ -105,7 +131,7 @@ class NerService:
         )
         config = prepared.config
         entities = (
-            attach_offsets_trie(
+            attach_offsets(
                 request.text,
                 raw.entities,
                 case_sensitive=config.case_sensitive,
@@ -123,12 +149,21 @@ class NerService:
             provider=self._provider.name,
             usage=raw.usage,
             attempts=raw.attempts,
+            warnings=(
+                [
+                    f"Dropped {len(raw.entities) - len(entities)} unmatched, duplicate, "
+                    "or overlapping entities."
+                ]
+                if len(entities) < len(raw.entities)
+                else []
+            ),
         )
         self._metrics.record_structured_output_retries(
             provider=self._provider.name,
             model=config.model,
             retries=raw.attempts - 1,
         )
+        self._metrics.record_tokens(self._provider.name, config.model, raw.usage)
         self._record_estimated_cost(config.model, raw.usage)
         if self._cache is not None:
             self._cache.set(
@@ -139,12 +174,17 @@ class NerService:
         return response
 
     async def aclose(self) -> None:
-        await self._provider.aclose()
+        try:
+            await self._provider.aclose()
+        finally:
+            await self._configs.aclose()
 
     async def _resolve_config(self, request: ExtractRequest) -> PreparedNERConfig:
         if request.config_id is not None:
             self._validate_config_id(request.config_id)
-            return await self._configs.get(request.config_id)
+            prepared = await self._configs.get(request.config_id)
+            self._validate_config(prepared.config)
+            return prepared
         assert request.config is not None
         return prepare_config(self._prepare_runtime_config(request.config))
 
@@ -153,8 +193,12 @@ class NerService:
         self._validate_config(config)
         return config
 
-    def _cache_key(self, prepared: PreparedNERConfig) -> str:
-        payload = prepared.config.model_dump(mode="json")
+    def _cache_key(self, prepared: PreparedNERConfig, system_prompt: str) -> str:
+        payload = {
+            "provider": self._provider.name,
+            "config": prepared.config.model_dump(mode="json"),
+            "prompt": system_prompt,
+        }
         return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
     def _apply_runtime_defaults(self, config: NERConfig) -> NERConfig:
@@ -172,10 +216,19 @@ class NerService:
             raise ValueError(f"text length must be <= {self._limits.max_text_length}")
         if request.config_id is not None:
             self._validate_config_id(request.config_id)
-        if request.config is not None:
-            self._validate_config(request.config)
 
     def _validate_config(self, config: NERConfig) -> None:
+        if self._limits.allowed_models and config.model not in self._limits.allowed_models:
+            raise ValueError("model is not in ALLOWED_MODELS")
+        if config.retries > self._limits.max_attempts:
+            raise ValueError(f"retries must be <= {self._limits.max_attempts}")
+        if config.max_tokens > self._limits.max_output_tokens:
+            raise ValueError(f"max_tokens must be <= {self._limits.max_output_tokens}")
+        if len(config.few_shot_examples) > self._limits.max_few_shot_examples:
+            raise ValueError("too many few-shot examples")
+        for example in config.few_shot_examples:
+            if len(example.text) > self._limits.max_text_length:
+                raise ValueError("few-shot text exceeds configured limit")
         if len(config.labels) > self._limits.max_labels:
             raise ValueError(f"labels length must be <= {self._limits.max_labels}")
         for label in config.labels:

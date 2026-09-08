@@ -9,7 +9,7 @@ LABEL_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
 class EntityLabel(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     name: str = Field(..., min_length=1, max_length=64)
     description: str = Field(..., min_length=1)
@@ -17,19 +17,36 @@ class EntityLabel(BaseModel):
     @field_validator("name")
     @classmethod
     def _name_format(cls, v: str) -> str:
-        if not LABEL_NAME_RE.match(v):
+        if not LABEL_NAME_RE.fullmatch(v):
             raise ValueError(
                 "name must match ^[A-Z][A-Z0-9_]*$ (uppercase letters, digits, underscores)"
             )
         return v
 
 
+class RawEntity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+    label: str
+
+
 class FewShotExample(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     text: str = Field(..., min_length=1)
-    entities: list[dict[str, Any]] = Field(default_factory=list)
+    entities: list[RawEntity] = Field(default_factory=list, max_length=2048)
+
+
+def _runtime_defaults_schema(schema: dict[str, Any]) -> None:
+    # Runtime settings resolve omitted values. SDKs must not send hard-coded defaults.
+    for name in ("model", "max_tokens"):
+        schema["properties"][name].pop("default", None)
 
 
 class NERConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_runtime_defaults_schema)
+
     labels: list[EntityLabel] = Field(..., min_length=1)
     model: str = Field(default="llama3.1-8b", min_length=1, max_length=128)
     require_offsets: bool = False
@@ -45,10 +62,16 @@ class NERConfig(BaseModel):
         names = [label.name for label in self.labels]
         if len(set(names)) != len(names):
             raise ValueError("label names must be unique")
+        for example in self.few_shot_examples:
+            for entity in example.entities:
+                if entity.label not in names or not entity.text or entity.text not in example.text:
+                    raise ValueError("few-shot entities must use configured labels and source text")
         return self
 
 
 class NERConfigPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     labels: list[EntityLabel] | None = Field(default=None, min_length=1)
     model: str | None = Field(default=None, min_length=1, max_length=128)
     require_offsets: bool | None = None
@@ -75,6 +98,8 @@ class NERConfigRecord(BaseModel):
 
 
 class ExtractRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     text: str = Field(..., min_length=1)
     config_id: str | None = Field(default=None, min_length=1)
     config: NERConfig | None = None
@@ -87,17 +112,10 @@ class ExtractRequest(BaseModel):
         return self
 
 
-class RawEntity(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    text: str
-    label: str
-
-
 class RawEntities(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    entities: list[RawEntity]
+    entities: list[RawEntity] = Field(max_length=2048)
     usage: dict[str, Any] | None = None
     attempts: int = Field(default=1, ge=1)
 
@@ -110,11 +128,12 @@ class Entity(BaseModel):
 
 
 class ExtractResponse(BaseModel):
+    cache_hit: bool = False
     entities: list[Entity]
     model: str
     provider: str
     usage: dict[str, Any] | None = None
-    attempts: int = Field(default=1, ge=1)
+    attempts: int = Field(default=1, ge=0)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -126,12 +145,24 @@ class ExtractResponseData(BaseModel):
 
 
 class ResponseMeta(BaseModel):
+    cache_hit: bool = False
     request_id: str
     latency_ms: float = Field(..., ge=0.0)
-    attempts: int = Field(..., ge=1)
+    attempts: int = Field(..., ge=0)
     warnings: list[str] = Field(default_factory=list)
 
 
 class ExtractEnvelope(BaseModel):
     data: ExtractResponseData
     meta: ResponseMeta
+
+
+class ErrorDetail(BaseModel):
+    code: str
+    message: str
+    details: dict[str, Any] = Field(default_factory=dict)
+    request_id: str
+
+
+class ErrorEnvelope(BaseModel):
+    error: ErrorDetail

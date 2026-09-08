@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Generator
-from contextlib import contextmanager
 from typing import Any
 
 from prometheus_client import Counter, Histogram
@@ -87,18 +85,6 @@ class MetricsCollector:
     def record_estimated_cost(self, provider: str, model: str, cost_usd: float) -> None:
         if cost_usd > 0:
             _estimated_cost.labels(provider=provider, model=model).inc(cost_usd)
-
-
-@contextmanager
-def extraction_timer() -> Generator[list[float], None, None]:
-    import time
-
-    started = time.perf_counter()
-    duration_ms = [0.0]
-    try:
-        yield duration_ms
-    finally:
-        duration_ms[0] = (time.perf_counter() - started) * 1000
 
 
 def setup_metrics(app: Any) -> None:

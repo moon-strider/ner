@@ -1,0 +1,78 @@
+{
+  "scope": "Installed runtime + development + benchmark environment; advisory database queried 2026-09-08",
+  "before": [
+    {
+      "package": "aiohttp",
+      "old_version": "3.13.5",
+      "advisories": [
+        "PYSEC-2026-2104",
+        "PYSEC-2026-2105",
+        "PYSEC-2026-2106",
+        "PYSEC-2026-2107",
+        "PYSEC-2026-2108",
+        "PYSEC-2026-2109",
+        "PYSEC-2026-2110",
+        "PYSEC-2026-2111",
+        "PYSEC-2026-2112",
+        "PYSEC-2026-2113",
+        "PYSEC-2026-237",
+        "PYSEC-2026-3545",
+        "PYSEC-2026-3546",
+        "PYSEC-2026-3547"
+      ]
+    },
+    {
+      "package": "click",
+      "old_version": "8.3.2",
+      "advisories": [
+        "PYSEC-2026-2132"
+      ]
+    },
+    {
+      "package": "datasets",
+      "old_version": "4.8.5",
+      "advisories": [
+        "PYSEC-2026-3716"
+      ]
+    },
+    {
+      "package": "idna",
+      "old_version": "3.11",
+      "advisories": [
+        "PYSEC-2026-215"
+      ]
+    },
+    {
+      "package": "pydantic-settings",
+      "old_version": "2.14.0",
+      "advisories": [
+        "GHSA-4xgf-cpjx-pc3j"
+      ]
+    },
+    {
+      "package": "starlette",
+      "old_version": "0.52.1",
+      "advisories": [
+        "PYSEC-2026-161",
+        "PYSEC-2026-2280",
+        "PYSEC-2026-2281",
+        "PYSEC-2026-248",
+        "PYSEC-2026-249"
+      ]
+    },
+    {
+      "package": "urllib3",
+      "old_version": "2.6.3",
+      "advisories": [
+        "PYSEC-2026-141",
+        "PYSEC-2026-142"
+      ]
+    }
+  ],
+  "after": "No known vulnerabilities found by pip-audit after dependency updates",
+  "notes": [
+    "The original scan contained 29 entries, including duplicated advisory IDs.",
+    "Package advisories do not imply that every affected feature was reachable in this service.",
+    "The project itself is local and unpublished; the scanner cannot audit it as a PyPI release."
+  ]
+}

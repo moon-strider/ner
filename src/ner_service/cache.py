@@ -4,6 +4,8 @@ import hashlib
 import json
 import time
 from abc import ABC, abstractmethod
+from collections import OrderedDict
+from copy import deepcopy
 from typing import Any
 
 
@@ -17,23 +19,30 @@ class CacheBackend(ABC):
 
 class MemoryCache(CacheBackend):
     def __init__(self, max_size: int = 10_000) -> None:
+        if max_size < 1:
+            raise ValueError("max_size must be positive")
         self._max_size = max_size
-        self._data: dict[str, dict[str, Any]] = {}
+        self._data: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._expires: dict[str, float] = {}
 
     def get(self, key: str) -> dict[str, Any] | None:
-        now = time.time()
-        if key in self._expires and self._expires[key] < now:
+        now = time.monotonic()
+        if key in self._expires and self._expires[key] <= now:
             self._delete(key)
             return None
-        return self._data.get(key)
+        value = self._data.get(key)
+        if value is not None:
+            self._data.move_to_end(key)
+            return deepcopy(value)
+        return None
 
     def set(self, key: str, value: dict[str, Any], ttl: int) -> None:
         if len(self._data) >= self._max_size and key not in self._data:
-            oldest = min(self._expires, key=lambda k: self._expires[k])
+            oldest = next(iter(self._data))
             self._delete(oldest)
-        self._data[key] = value
-        self._expires[key] = time.time() + ttl
+        self._data[key] = deepcopy(value)
+        self._data.move_to_end(key)
+        self._expires[key] = time.monotonic() + ttl
 
     def _delete(self, key: str) -> None:
         self._data.pop(key, None)

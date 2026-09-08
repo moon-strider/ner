@@ -1,255 +1,137 @@
-# ner-service
+# NER Service
 
-HTTP NER (Named Entity Recognition) service powered by LLMs with structured output.
+[![CI](https://github.com/moon-strider/ner/actions/workflows/ci.yml/badge.svg)](https://github.com/moon-strider/ner/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB)](pyproject.toml)
+[![MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-- FastAPI + Python 3.12 + [uv](https://docs.astral.sh/uv/)
-- Client-defined entity labels per request (dynamic JSON Schema)
-- Optional character offsets (`start`, `end`) recovered via substring matching
+**Extract the entity types you define, through one HTTP API.**
 
-## Quick start
+Send text and a set of labels. Get structured entities, optional source offsets,
+and request metadata. Use a local CPU model or an OpenAI-compatible cloud endpoint.
 
-```bash
-cp .env.example .env
-uv sync --extra dev
-uv run uvicorn ner_service.main:app --host 0.0.0.0 --port 8000
-```
-
-Request:
-
-```bash
-CONFIG_ID="$(curl -s -X POST http://localhost:8000/v1/configs \
-  -H 'Content-Type: application/json' \
-  -d '{
+```json
+{
+  "text": "Tim Cook visited Berlin.",
+  "config": {
     "labels": [
-      {"name": "PERSON", "description": "People, real or fictional"},
-      {"name": "LOCATION", "description": "Cities, countries, places"}
-    ]
-  }' | jq -r .id)"
-
-curl -s -X POST http://localhost:8000/v1/extract \
-  -H 'Content-Type: application/json' \
-  -d "{
-    \"text\": \"Tim Cook visited Berlin last week.\",
-    \"config_id\": \"${CONFIG_ID}\"
-  }" | jq
-```
-
-Response:
-
-```json
-{
-  "data": {
-    "entities": [
-      {"text": "Tim Cook", "label": "PERSON"},
-      {"text": "Berlin", "label": "LOCATION"}
+      {"name": "PERSON", "description": "Names of people"},
+      {"name": "LOCATION", "description": "Cities and countries"}
     ],
-    "model": "llama3.1-8b",
-    "provider": "cerebras"
-  },
-  "meta": {
-    "request_id": "0b4c6a80-4c4b-4cd0-9b1f-30b66b8e3e22",
-    "latency_ms": 824.6,
-    "attempts": 1,
-    "warnings": []
+    "require_offsets": true
   }
 }
 ```
 
-## API
-
-- `GET /v1/health` — liveness probe.
-- `GET /v1/ready` — readiness probe; verifies service initialization and local config storage without making an LLM call.
-- `GET /v1/providers` — current provider and model.
-- `GET /metrics` — Prometheus metrics endpoint.
-- `POST /v1/configs` — create a persisted NER config; returns `{id, config}`.
-- `GET /v1/configs` — list configs.
-- `GET /v1/configs/{id}` — get one config.
-- `PUT /v1/configs/{id}` — replace one config.
-- `PATCH /v1/configs/{id}` — partially update one config.
-- `DELETE /v1/configs/{id}` — delete one config.
-- `POST /v1/extract` — body: `{text, config_id?, config?, prompt_payload?}`. Exactly one of `config_id` or inline `config` is required. Returns `{data, meta}`.
-- `POST /v1/batch/extract` — batch extraction for multiple items with per-item success/error envelopes.
-
-`NERConfig` fields:
+Example entity output (illustrative; recognition depends on the model):
 
 ```json
-{
-  "labels": [{"name": "PERSON", "description": "People"}],
-  "model": "llama3.1-8b",
-  "require_offsets": false,
-  "case_sensitive": true,
-  "retries": 3,
-  "max_tokens": 1024,
-  "reasoning_effort": null,
-  "system_prompt": null,
-  "few_shot_examples": []
-}
+[
+  {"text": "Tim Cook", "label": "PERSON", "start": 0, "end": 8},
+  {"text": "Berlin", "label": "LOCATION", "start": 17, "end": 23}
+]
 ```
 
-Configs are stored in SQLite (`configs.db`) by default and survive service restarts. Create a config once and reuse `config_id` for high-volume extraction to avoid resending labels, prompt, and schema on every request. Inline configs are still supported for one-off calls.
+- **Custom labels:** a JSON Schema is built for each configuration; invalid model output is checked and retried.
+- **Grounded text:** unmatched entity surfaces are dropped. Offsets refer to the original Python string.
+- **Reusable configurations:** inline requests or SQLite-backed config IDs, with CRUD and batch extraction.
+- **Operational controls:** prompt-aware caching, provider concurrency limits, circuit breaker, optional Bearer authentication, Prometheus, and OpenTelemetry.
+- **Typed Python client:** sync and async calls generated from the API, including error responses.
 
-Set `require_offsets=true` to recover `start` / `end` through substring matching. Set `case_sensitive=false` to match model surfaces case-insensitively; returned entity text uses the source text casing when a match is found.
+This is an LLM extraction service. JSON Schema constrains the response shape;
+it does not guarantee that a label or entity is semantically correct.
 
-`system_prompt` is a full prompt override template. Placeholders support `{cfg.field}` and `{payload.field}` with dotted access. `cfg.schema` is the compact JSON Schema generated from labels; `payload` is supplied per `/extract` call:
+## Try it locally
 
-```json
-{
-  "text": "Tim Cook visited Berlin last week.",
-  "config_id": "CONFIG_ID",
-  "prompt_payload": {"number": 42}
-}
-```
+Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/getting-started/installation/),
+and [llama.cpp](https://github.com/ggml-org/llama.cpp/blob/master/docs/install.md).
+No cloud API key is needed. The example uses SmolLM2 1.7B in Q4_K_M quantization
+(about 1 GB of model weights). Allow additional RAM for the runtime and context.
 
-Example template:
-
-```text
-follow schema strictly: {cfg.schema}; remember this number: {payload.number}
-```
-
-Use `{{` and `}}` for literal braces.
-
-Few-shot examples are sent as user/assistant examples before the extraction text:
-
-```json
-{
-  "few_shot_examples": [
-    {
-      "text": "Ada Lovelace wrote notes.",
-      "entities": [{"text": "Ada Lovelace", "label": "PERSON"}]
-    }
-  ]
-}
-```
-
-Authentication is intentionally out of scope. Add auth in the embedding application or at the gateway layer if a deployment needs it.
-
-## Configuration
-
-Environment variables (also read from `.env`):
-
-| Variable | Default | Description |
-| --- | --- | --- |
-| `CEREBRAS_API_KEY` | — | Required when `NER_PROVIDER=cerebras`. |
-| `OPENAI_API_KEY` | — | Required when `NER_PROVIDER=openai`. |
-| `OPENROUTER_API_KEY` | — | Required when `NER_PROVIDER=openrouter`. |
-| `VLLM_API_KEY` | `not-needed` | Bearer token for OpenAI-compatible local vLLM endpoints. |
-| `NER_PROVIDER` | `cerebras` | Provider id: `cerebras`, `openai`, `openrouter`, or `vllm`. |
-| `NER_MODEL` | `llama3.1-8b` | Model identifier passed to the provider. |
-| `REQUEST_TIMEOUT_S` | `30` | Per-request upstream timeout. |
-| `TRANSPORT_RETRIES` | `2` | SDK/network retries for upstream transport failures. |
-| `MAX_TOKENS` | `1024` | Default `max_completion_tokens` passed to the provider. |
-| `OTEL_ENDPOINT` | — | OTLP HTTP trace export endpoint, e.g. `http://collector:4318/v1/traces`. |
-| `RATE_LIMIT_RPS` | `100` | Token-bucket refill rate for provider calls. |
-| `RATE_LIMIT_BURST` | `200` | Token-bucket burst capacity for provider calls. |
-| `PROVIDER_CONCURRENCY_LIMIT` | `50` | Max concurrent in-flight provider requests. |
-| `MAX_TEXT_LENGTH` | `32000` | Maximum input text length accepted by the service. |
-| `MAX_LABELS` | `50` | Maximum labels per NER config. |
-| `MAX_SYSTEM_PROMPT_LENGTH` | `20000` | Maximum custom `system_prompt` length. |
-| `MAX_LABEL_DESCRIPTION_LENGTH` | `500` | Maximum label description length. |
-| `MAX_CONFIG_ID_LENGTH` | `128` | Maximum config id length accepted by API paths and payloads. |
-| `CONFIG_DB_PATH` | `configs.db` | SQLite config database path. |
-| `CACHE_ENABLED` | `true` | Enable in-process extraction result cache. |
-| `CACHE_TTL_SECONDS` | `600` | Extraction result cache TTL. |
-| `CACHE_MAX_SIZE` | `10000` | Maximum in-process cache entries. |
-| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `5` | Consecutive upstream failures before opening provider circuit. |
-| `CIRCUIT_BREAKER_RECOVERY_TIMEOUT_S` | `30` | Seconds before trying a half-open provider call. |
-| `CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS` | `1` | Max test calls while circuit is half-open. |
-| `BATCH_CONCURRENCY` | `10` | Max concurrent items inside `/v1/batch/extract`. |
-| `TOKEN_PRICING_JSON` | — | Optional JSON model pricing map for estimated cost metrics. |
-
-`NERConfig.retries` controls model repair attempts when the provider returns invalid structured output. `TRANSPORT_RETRIES` controls SDK/network retries before the service receives a provider response.
-
-Errors use a single envelope:
-
-```json
-{
-  "error": {
-    "code": "validation_error",
-    "message": "request validation failed",
-    "details": {},
-    "request_id": "0b4c6a80-4c4b-4cd0-9b1f-30b66b8e3e22"
-  }
-}
-```
-
-## Development
+Start the model server in one terminal:
 
 ```bash
-uv sync --extra dev
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy src
-uv run pytest -m "not integration"
-CEREBRAS_API_KEY=... uv run pytest -m integration
+llama-server -hf HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF:Q4_K_M \
+  --alias smollm2-1.7b --host 127.0.0.1 --port 8080 \
+  -c 4096 -t 4 -ngl 0 -np 1
 ```
 
-Tracing is initialized in-process. Do not use `--reload` when you need reliable OpenTelemetry spans; uvicorn reload mode is documented to break instrumentation.
-
-### CoNLL-2003 benchmark
+In another terminal:
 
 ```bash
-CEREBRAS_API_KEY=... uv run --extra dev python scripts/benchmark_conll.py --model llama3.1-8b --concurrency 40
-CEREBRAS_API_KEY=... uv run --extra dev python scripts/benchmark_conll.py --model llama3.1-8b --require-offsets --concurrency 40
-CEREBRAS_API_KEY=... uv run --extra dev python scripts/benchmark_conll.py --model gpt-oss-120b --reasoning-effort low --concurrency 40
-CEREBRAS_API_KEY=... uv run --extra dev python scripts/benchmark_conll.py --model gpt-oss-120b --reasoning-effort low --require-offsets --concurrency 40
+git clone https://github.com/moon-strider/ner.git
+cd ner
+cp .env.example .env
+uv sync --frozen --no-dev
+uv run --frozen --no-dev uvicorn ner_service.main:app --host 127.0.0.1 --port 8000
 ```
 
-Default scoring is exact unique `(label, text)` pairs. `--require-offsets` scores exact `(label, start, end)` triples. The script creates one persisted NER config and then extracts by `config_id`. It prints micro-P / micro-R / micro-F1, errors, token usage, total time, throughput, and avg/min/max per-example latency.
-
-The CoNLL-2003 `test` split is cached locally at `data/benchmarks/conll2003-test.jsonl` after the first load. Later runs reuse that file instead of downloading the dataset again.
-
-Full CoNLL-2003 `test` baseline results (3453 examples, concurrency 40, max_tokens 1024, retries 3):
-
-| Model | Mode | Reasoning | micro-P | micro-R | micro-F1 | TP | FP | FN | Errors | Total s | Avg s | Min s | Max s | Examples/s | Total tokens |
-| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `llama3.1-8b` | dictionary | N/A | 0.531 | 0.737 | 0.617 | 4115 | 3637 | 1469 | 2 | 68.163 | 0.772 | 0.350 | 5.083 | 50.658 | 1436014 |
-| `llama3.1-8b` | offsets | N/A | 0.509 | 0.726 | 0.598 | 4098 | 3950 | 1550 | 1 | 114.363 | 1.314 | 0.342 | 63.124 | 30.193 | 1445445 |
-| `gpt-oss-120b` | dictionary | low | 0.778 | 0.776 | 0.777 | 4335 | 1240 | 1249 | 0 | 204.446 | 2.343 | 0.298 | 66.743 | 16.890 | 1758947 |
-| `gpt-oss-120b` | offsets | low | 0.771 | 0.774 | 0.773 | 4374 | 1297 | 1274 | 0 | 207.912 | 2.214 | 0.304 | 62.849 | 16.608 | 1815023 |
-
-Cost to run:
-
-- `llama3.1-8b`: ±0.3$ per run
-- `gpt-oss-120b`: ±0.69$ per run
-
-## Docker
+Make a request:
 
 ```bash
-docker build -t ner-service .
-docker run --rm -p 8000:8000 --env-file .env ner-service
-curl -fsS http://localhost:8000/v1/health
-curl -fsS http://localhost:8000/v1/ready
+curl --fail-with-body http://127.0.0.1:8000/v1/extract \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"I visited Berlin.","config":{"labels":[{"name":"LOCATION","description":"Cities and countries"}],"require_offsets":true}}'
 ```
 
-## Observability stack
+Open [interactive API docs](http://127.0.0.1:8000/docs), or run the end-to-end smoke check:
 
 ```bash
+uv run --frozen python scripts/smoke.py
+```
+
+The small CPU model is useful for trying the service, not an accuracy baseline.
+See [local inference](docs/local-inference.md) for the tested runtime, limitations,
+and cloud-provider setup in [configuration](docs/configuration.md).
+
+## API at a glance
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /v1/extract` | Extract with exactly one of `config` or `config_id` |
+| `POST /v1/batch/extract` | Up to 100 items; ordered, per-item results |
+| `POST /v1/configs` | Save a configuration |
+| `GET /v1/configs` | List saved configurations |
+| `GET /v1/configs/{id}` | Read a configuration |
+| `PUT /v1/configs/{id}` | Replace an existing configuration |
+| `PATCH /v1/configs/{id}` | Update selected fields |
+| `DELETE /v1/configs/{id}` | Delete a configuration |
+| `GET /v1/health`, `GET /v1/ready` | Liveness and local-storage readiness |
+| `GET /v1/providers` | Configured provider and default model |
+| `GET /metrics` | Prometheus metrics |
+
+See the [API contract](docs/api.md) for response envelopes, offsets, caching,
+few-shot examples, templates, and error codes.
+
+## Run and develop
+
+```bash
+# Containerized service; reads .env and persists configs in a named volume.
 docker compose up -d --build
-docker compose ps
+
+# Add Prometheus and Grafana.
+docker compose --profile observability up -d --build
+
+# Development checks.
+uv sync --frozen --extra dev
+uv run --frozen ruff check .
+uv run --frozen ruff format --check .
+uv run --frozen mypy src
+uv run --frozen pytest -m 'not integration'
+uv run --frozen python scripts/generate_client.py --check
 ```
 
-- NER service: `http://localhost:8000/v1/health`
-- Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000` (`admin` / `admin`)
-- Provisioned Grafana datasource UID: `prometheus`
-- Provisioned dashboard UID: `ner-service-overview`
+For a model server running on the Docker host, set
+`LLAMA_CPP_BASE_URL=http://host.docker.internal:8080/v1` in `.env` and make that
+server reachable from the Docker bridge. See [operations](docs/operations.md).
 
-The compose stack scrapes the service `/metrics` endpoint every 15 seconds and provisions a Grafana dashboard with request rate, provider errors, token volume, and p95 latency panels. Service metrics include extraction latency, provider errors, token counts, circuit breaker events, cache hit/miss counters, structured output retry counters, and optional estimated cost counters when `TOKEN_PRICING_JSON` is configured.
+| Guide | Contents |
+| --- | --- |
+| [API](docs/api.md) | Requests, responses, errors, and matching semantics |
+| [Configuration](docs/configuration.md) | Providers and environment variables |
+| [Operations](docs/operations.md) | Docker, persistence, access control, metrics, tracing |
+| [Local inference](docs/local-inference.md) | CPU setup and reproducible smoke testing |
+| [Development](CONTRIBUTING.md) | Tests, client generation, packaging |
+| [Benchmarks](docs/benchmarks.md) | Scoring methodology and historical results |
+| [Audit](docs/audit.md) | Findings, fixes, validation evidence, remaining limits |
 
-## Python client
-
-```bash
-just generate-client
-uv add ./clients/python/ner-client
-```
-
-Generated package path: `clients/python/ner-client`.
-The package exposes sync and async clients for `/v1/configs`, `/v1/extract`, and `/v1/batch/extract`.
-
-## Profiling
-
-```bash
-uv run python scripts/profile.py --provider cerebras --model llama3.1-8b --texts-count 4 --concurrency 2 --text-lengths 64,256,1024
-```
-
-The profiler emits JSON with per-length p50/p95/p99 latency, throughput, error counts, and aggregated token usage. Add `--output path/to/report.json` to persist the report for CI artifacts.
+Licensed under [MIT](LICENSE). Model weights and evaluation datasets retain their own licenses.

@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import logging
 import re
 from collections.abc import Iterable
 
 from ner_service.schemas import Entity, RawEntity
-
-logger = logging.getLogger(__name__)
 
 
 def attach_offsets(
@@ -25,11 +22,6 @@ def attach_offsets(
 
         span = _find_next_span(text, surface, consumed, case_sensitive=case_sensitive)
         if span is None:
-            logger.warning(
-                "entity surface %r (label=%s) not found in input text; dropping",
-                surface,
-                raw.label,
-            )
             continue
 
         start, end = span
@@ -46,19 +38,19 @@ def canonicalize_entities(
     case_sensitive: bool = True,
 ) -> list[Entity]:
     result: list[Entity] = []
+    seen: set[tuple[str, str]] = set()
     for raw in raw_entities:
-        surface = raw.text
-        if not surface:
+        if not raw.text:
             continue
-        if case_sensitive:
-            result.append(Entity(text=surface, label=raw.label))
-            continue
-        span = _find_next_span(text, surface, [], case_sensitive=False)
+        span = _find_next_span(text, raw.text, [], case_sensitive=case_sensitive)
         if span is None:
-            result.append(Entity(text=surface, label=raw.label))
             continue
         start, end = span
-        result.append(Entity(text=text[start:end], label=raw.label))
+        surface = text[start:end]
+        key = (surface, raw.label)
+        if key not in seen:
+            seen.add(key)
+            result.append(Entity(text=surface, label=raw.label))
     return result
 
 

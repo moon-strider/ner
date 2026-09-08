@@ -5,31 +5,73 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13']
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
         with:
           enable-cache: true
-
-      - name: Set up Python
-        run: uv python install 3.12
-
-      - name: Install dependencies
-        run: uv sync --frozen --extra dev
-
-      - name: Ruff lint
-        run: uv run ruff check .
-
-      - name: Ruff format check
-        run: uv run ruff format --check .
-
+          python-version: ${{ matrix.python }}
+      - name: Install locked dependencies
+        run: uv sync --frozen --extra dev --extra benchmark
+      - name: Lint and format
+        run: |
+          uv run --frozen ruff check .
+          uv run --frozen ruff format --check .
       - name: Type check
-        run: uv run mypy src
+        run: uv run --frozen mypy src
+      - name: Unit and contract tests
+        run: uv run --frozen pytest -m 'not integration' --cov=ner_service --cov-report=term-missing --cov-fail-under=85
+      - name: Verify generated SDK
+        if: matrix.python == '3.12'
+        run: uv run --frozen python scripts/generate_client.py --check
+      - name: Build distributions
+        if: matrix.python == '3.12'
+        run: |
+          uv build
+          uv build clients/python/ner-client --out-dir dist/client
+      - name: Audit installed dependencies
+        if: matrix.python == '3.12'
+        run: uvx pip-audit --path .venv/lib/python3.12/site-packages
 
-      - name: Unit tests
-        run: uv run pytest -m "not integration"
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build and check storage readiness as non-root
+        run: |
+          docker build -t ner-service:ci .
+          docker run -d --name ner-ci -p 127.0.0.1:8000:8000 \
+            -e NER_PROVIDER=llama_cpp -e NER_MODEL=smoke ner-service:ci
+          python - <<'PY'
+          import time, urllib.request
+          for attempt in range(30):
+              try:
+                  with urllib.request.urlopen('http://127.0.0.1:8000/v1/ready', timeout=2) as r:
+                      assert r.status == 200
+                  break
+              except OSError:
+                  time.sleep(1)
+          else:
+              raise SystemExit('Container never became ready')
+          PY
+          test "$(docker exec ner-ci id -u)" != 0
+          docker exec ner-ci test -f /app/data/configs.db
+          cp .env.example .env
+          docker compose --profile observability config --quiet
+      - name: Container logs
+        if: always()
+        run: docker logs ner-ci || true

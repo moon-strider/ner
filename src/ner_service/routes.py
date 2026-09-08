@@ -4,10 +4,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
+from ner_service.auth import authenticate
 from ner_service.batch import BatchExtractRequest, BatchExtractResponse, bulk_extract
 from ner_service.config import Settings
-from ner_service.metrics import MetricsCollector
 from ner_service.schemas import (
+    ErrorEnvelope,
     ExtractEnvelope,
     ExtractRequest,
     ExtractResponse,
@@ -60,12 +61,19 @@ def _extract_envelope(
             request_id=request_id,
             latency_ms=latency_ms,
             attempts=response.attempts,
+            cache_hit=response.cache_hit,
             warnings=response.warnings,
         ),
     )
 
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(authenticate)],
+    responses={
+        status: {"model": ErrorEnvelope}
+        for status in (400, 401, 402, 403, 404, 413, 422, 429, 500, 502, 503)
+    },
+)
 
 
 @router.get("/health")
@@ -77,7 +85,10 @@ async def health() -> dict[str, str]:
 async def ready(request: Request) -> dict[str, Any]:
     svc = _get_service(request)
     _get_settings(request)
-    return await svc.ready()
+    try:
+        return await svc.ready()
+    except Exception as exc:
+        raise HTTPException(503, "config storage is unavailable") from exc
 
 
 @router.get("/providers")
@@ -142,36 +153,11 @@ async def extract(
     payload: ExtractRequest,
     svc: NerService = Depends(_get_service),
 ) -> ExtractEnvelope:
-    metrics = MetricsCollector()
     import time
 
     started = time.perf_counter()
-    try:
-        response = await svc.extract(payload)
-    except Exception as exc:
-        duration_ms = (time.perf_counter() - started) * 1000
-        metrics.record_attempt(
-            provider=svc.provider.name,
-            model=svc.provider.model,
-            duration_ms=duration_ms,
-            success=False,
-        )
-        error_type = exc.__class__.__name__
-        metrics.record_error(provider=svc.provider.name, error_type=error_type)
-        raise
-
+    response = await svc.extract(payload)
     duration_ms = (time.perf_counter() - started) * 1000
-    metrics.record_attempt(
-        provider=svc.provider.name,
-        model=response.model,
-        duration_ms=duration_ms,
-        success=True,
-    )
-    metrics.record_tokens(
-        provider=svc.provider.name,
-        model=response.model,
-        usage=response.usage,
-    )
     return _extract_envelope(response, request_id=_request_id(request), latency_ms=duration_ms)
 
 

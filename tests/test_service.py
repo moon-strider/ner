@@ -70,7 +70,10 @@ async def test_extract_uses_cache_for_duplicate_inline_requests() -> None:
     assert [(e.text, e.label) for e in first.entities] == [
         (e.text, e.label) for e in second.entities
     ]
-    assert first.usage == second.usage
+    assert first.usage is not None
+    assert second.usage is None
+    assert second.cache_hit is True
+    assert second.attempts == 0
     assert len(provider.calls) == 1
 
 
@@ -193,6 +196,7 @@ async def test_config_store_crud() -> None:
     await service.delete_config(created.id)
     with pytest.raises(ConfigNotFoundError):
         await service.get_config(created.id)
+    await service.aclose()
 
 
 @pytest.mark.skipif(not _has_aiosqlite(), reason="aiosqlite not installed")
@@ -201,7 +205,6 @@ async def test_sqlite_config_store_crud(tmp_path: Path) -> None:
     assert (await service.ready())["config_store"] == {
         "backend": "sqlite",
         "status": "ok",
-        "path": str(tmp_path / "configs.db"),
     }
     created = await service.create_config(_config(model="m1"))
 
@@ -220,6 +223,7 @@ async def test_sqlite_config_store_crud(tmp_path: Path) -> None:
     await service.delete_config(created.id)
     with pytest.raises(ConfigNotFoundError):
         await service.get_config(created.id)
+    await service.aclose()
 
 
 def _config_patch(data: dict):
