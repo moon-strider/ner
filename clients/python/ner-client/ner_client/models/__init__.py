@@ -25,6 +25,9 @@ from .response_health_v1_health_get import ResponseHealthV1HealthGet
 from .response_meta import ResponseMeta
 from .response_providers_v1_providers_get import ResponseProvidersV1ProvidersGet
 from .response_ready_v1_ready_get import ResponseReadyV1ReadyGet
+from .span_pipeline_policy import SpanPipelinePolicy
+from .span_pipeline_policy_on_unavailable import SpanPipelinePolicyOnUnavailable
+from .span_pipeline_policy_prefilter import SpanPipelinePolicyPrefilter
 
 __all__ = (
     "BatchExtractItem",
@@ -52,4 +55,7 @@ __all__ = (
     "ResponseMeta",
     "ResponseProvidersV1ProvidersGet",
     "ResponseReadyV1ReadyGet",
+    "SpanPipelinePolicy",
+    "SpanPipelinePolicyOnUnavailable",
+    "SpanPipelinePolicyPrefilter",
 )

@@ -10,6 +10,7 @@ from ..types import UNSET, Unset
 if TYPE_CHECKING:
     from ..models.entity_label import EntityLabel
     from ..models.few_shot_example import FewShotExample
+    from ..models.span_pipeline_policy import SpanPipelinePolicy
 
 
 T = TypeVar("T", bound="NERConfig")
@@ -28,6 +29,7 @@ class NERConfig:
         reasoning_effort (None | str | Unset):
         system_prompt (None | str | Unset):
         few_shot_examples (list[FewShotExample] | Unset):
+        span_pipeline (None | SpanPipelinePolicy | Unset):
     """
 
     labels: list[EntityLabel]
@@ -39,8 +41,11 @@ class NERConfig:
     reasoning_effort: None | str | Unset = UNSET
     system_prompt: None | str | Unset = UNSET
     few_shot_examples: list[FewShotExample] | Unset = UNSET
+    span_pipeline: None | SpanPipelinePolicy | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.span_pipeline_policy import SpanPipelinePolicy
+
         labels = []
         for labels_item_data in self.labels:
             labels_item = labels_item_data.to_dict()
@@ -75,6 +80,14 @@ class NERConfig:
                 few_shot_examples_item = few_shot_examples_item_data.to_dict()
                 few_shot_examples.append(few_shot_examples_item)
 
+        span_pipeline: dict[str, Any] | None | Unset
+        if isinstance(self.span_pipeline, Unset):
+            span_pipeline = UNSET
+        elif isinstance(self.span_pipeline, SpanPipelinePolicy):
+            span_pipeline = self.span_pipeline.to_dict()
+        else:
+            span_pipeline = self.span_pipeline
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -98,6 +111,8 @@ class NERConfig:
             field_dict["system_prompt"] = system_prompt
         if few_shot_examples is not UNSET:
             field_dict["few_shot_examples"] = few_shot_examples
+        if span_pipeline is not UNSET:
+            field_dict["span_pipeline"] = span_pipeline
 
         return field_dict
 
@@ -105,6 +120,7 @@ class NERConfig:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.entity_label import EntityLabel
         from ..models.few_shot_example import FewShotExample
+        from ..models.span_pipeline_policy import SpanPipelinePolicy
 
         d = dict(src_dict)
         labels = []
@@ -151,6 +167,23 @@ class NERConfig:
 
                 few_shot_examples.append(few_shot_examples_item)
 
+        def _parse_span_pipeline(data: object) -> None | SpanPipelinePolicy | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                span_pipeline_type_0 = SpanPipelinePolicy.from_dict(data)
+
+                return span_pipeline_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | SpanPipelinePolicy | Unset, data)
+
+        span_pipeline = _parse_span_pipeline(d.pop("span_pipeline", UNSET))
+
         ner_config = cls(
             labels=labels,
             model=model,
@@ -161,6 +194,7 @@ class NERConfig:
             reasoning_effort=reasoning_effort,
             system_prompt=system_prompt,
             few_shot_examples=few_shot_examples,
+            span_pipeline=span_pipeline,
         )
 
         return ner_config
