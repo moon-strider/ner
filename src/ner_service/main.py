@@ -19,8 +19,10 @@ from ner_service.providers.base import ProviderError
 from ner_service.providers.registry import get_provider
 from ner_service.routes import router as v1_router
 from ner_service.service import NerService
+from ner_service.span_pipeline import JevSpanPipeline
 from ner_service.stores import SQLiteStore
 from ner_service.telemetry import setup_tracing
+from ner_service.typesafe import JevClient
 
 logger = logging.getLogger(__name__)
 
@@ -43,16 +45,35 @@ async def lifespan(app: FastAPI) -> Any:
             MemoryCache(max_size=settings.cache_max_size),
             ttl=settings.cache_ttl_seconds,
         )
-    app.state.service = NerService(
-        provider,
-        default_model=settings.ner_model,
-        max_tokens=settings.max_tokens,
-        limits=settings.runtime_limits(),
-        cache=cache,
-        config_store=SQLiteStore(settings.config_db_path),
-        token_pricing=settings.token_pricing(),
-    )
+    client: JevClient | None = None
+    span_pipeline: JevSpanPipeline | None = None
+    if settings.typesafe_api_key is not None:
+        client = JevClient(
+            api_key=settings.typesafe_api_key.get_secret_value(),
+            base_url=settings.typesafe_base_url,
+            model=settings.typesafe_model,
+            timeout=settings.typesafe_timeout_s,
+            max_connections=settings.typesafe_max_connections,
+        )
+        span_pipeline = JevSpanPipeline(client)
     try:
+        app.state.service = NerService(
+            provider,
+            default_model=settings.ner_model,
+            max_tokens=settings.max_tokens,
+            limits=settings.runtime_limits(),
+            cache=cache,
+            config_store=SQLiteStore(settings.config_db_path),
+            token_pricing=settings.token_pricing(),
+            span_pipeline=span_pipeline,
+        )
+    except Exception:
+        if client is not None:
+            await client.aclose()
+        raise
+    try:
+        if client is not None:
+            await client.prewarm()
         await app.state.service.ready()
         yield
     finally:

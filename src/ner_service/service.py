@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from typing import Any
 
 from pydantic import ValidationError
 
 from ner_service.cache import ResultCache
+from ner_service.candidates import CANDIDATE_GENERATOR_VERSION
 from ner_service.config import RuntimeLimits, TokenPricing
 from ner_service.config_store import (
     ConfigStore,
@@ -24,7 +26,24 @@ from ner_service.schemas import (
     NERConfigPatch,
     NERConfigRecord,
 )
+from ner_service.span_pipeline import SpanPipeline
 from ner_service.stores import ConfigStoreBackend
+
+
+def _normalize_usage(usage: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not usage:
+        return None
+    normalized: dict[str, Any] = dict(usage)
+    if "prompt_tokens" not in normalized and "input_tokens" in normalized:
+        normalized["prompt_tokens"] = normalized["input_tokens"]
+    if "completion_tokens" not in normalized and "output_tokens" in normalized:
+        normalized["completion_tokens"] = normalized["output_tokens"]
+    if "total_tokens" not in normalized:
+        prompt = normalized.get("prompt_tokens")
+        completion = normalized.get("completion_tokens")
+        if isinstance(prompt, int) and isinstance(completion, int):
+            normalized["total_tokens"] = prompt + completion
+    return normalized
 
 
 class NerService:
@@ -38,6 +57,7 @@ class NerService:
         cache: ResultCache | None = None,
         config_store: ConfigStoreBackend | None = None,
         token_pricing: dict[str, TokenPricing] | None = None,
+        span_pipeline: SpanPipeline | None = None,
     ) -> None:
         self._provider = provider
         self._default_model = default_model
@@ -48,6 +68,7 @@ class NerService:
         self._cache = cache
         self._token_pricing = token_pricing or {}
         self._metrics = MetricsCollector()
+        self._span_pipeline = span_pipeline
 
     @property
     def provider(self) -> NerProvider:
@@ -74,7 +95,12 @@ class NerService:
             self._validate_config_id(config_id)
             current = (await self._configs.get(config_id)).config
             data = current.model_dump()
-            data.update(patch.model_dump(exclude_unset=True))
+            update = patch.model_dump(exclude_unset=True)
+            if isinstance(update.get("span_pipeline"), dict):
+                merged = current.span_pipeline.model_dump() if current.span_pipeline else {}
+                merged.update(update["span_pipeline"])
+                update["span_pipeline"] = merged
+            data.update(update)
             try:
                 config = NERConfig.model_validate(data)
             except ValidationError as e:
@@ -96,26 +122,31 @@ class NerService:
 
     async def extract(self, request: ExtractRequest) -> ExtractResponse:
         started = time.perf_counter()
+        provider_name = self._initial_provider_name(request)
         model = self._default_model
         try:
             response = await self._extract(request)
+            provider_name = response.provider
             model = response.model
         except Exception as exc:
             self._metrics.record_attempt(
-                self._provider.name, model, (time.perf_counter() - started) * 1000, False
+                provider_name, model, (time.perf_counter() - started) * 1000, False
             )
-            self._metrics.record_error(self._provider.name, type(exc).__name__)
+            self._metrics.record_error(provider_name, type(exc).__name__)
             raise
         self._metrics.record_attempt(
-            self._provider.name, model, (time.perf_counter() - started) * 1000, True
+            provider_name, model, (time.perf_counter() - started) * 1000, True
         )
         return response
 
     async def _extract(self, request: ExtractRequest) -> ExtractResponse:
         self._validate_request(request)
         prepared = await self._resolve_config(request)
-        system_prompt = render_system_prompt(prepared, request.prompt_payload)
-        if len(system_prompt) > self._limits.max_rendered_prompt_length:
+        pipeline_mode = prepared.config.span_pipeline is not None
+        system_prompt = (
+            "" if pipeline_mode else render_system_prompt(prepared, request.prompt_payload)
+        )
+        if not pipeline_mode and len(system_prompt) > self._limits.max_rendered_prompt_length:
             raise ValueError("rendered system prompt exceeds configured limit")
         config_key = self._cache_key(prepared, system_prompt)
         cached = self._cache.get(request.text, config_key) if self._cache is not None else None
@@ -124,6 +155,8 @@ class NerService:
             response = ExtractResponse.model_validate(cached)
             return response.model_copy(update={"usage": None, "attempts": 0, "cache_hit": True})
         self._metrics.record_cache("miss")
+        if pipeline_mode:
+            return await self._extract_with_pipeline(request, prepared, config_key)
         raw = await self._provider.extract(
             request.text,
             prepared=prepared,
@@ -173,11 +206,52 @@ class NerService:
             )
         return response
 
+    async def _extract_with_pipeline(
+        self,
+        request: ExtractRequest,
+        prepared: PreparedNERConfig,
+        config_key: str,
+    ) -> ExtractResponse:
+        policy = prepared.config.span_pipeline
+        if policy is None or self._span_pipeline is None:
+            raise ValueError("span pipeline is configured but not available; set TYPESAFE_API_KEY")
+        result = await self._span_pipeline.extract(request.text, prepared=prepared)
+        usage = _normalize_usage(result.usage)
+        response = ExtractResponse(
+            entities=result.entities,
+            model=result.model or policy.model,
+            provider=self._span_pipeline.name,
+            usage=usage,
+            attempts=result.attempts,
+            warnings=result.warnings,
+        )
+        self._metrics.record_tokens(response.provider, response.model, usage)
+        self._record_estimated_cost(response.model, usage)
+        if self._cache is not None and not result.degraded:
+            self._cache.set(
+                request.text,
+                config_key,
+                response.model_dump(mode="json"),
+            )
+        return response
+
     async def aclose(self) -> None:
         try:
+            if self._span_pipeline is not None:
+                await self._span_pipeline.aclose()
             await self._provider.aclose()
         finally:
             await self._configs.aclose()
+
+    def _initial_provider_name(self, request: ExtractRequest) -> str:
+        config = request.config
+        if (
+            config is not None
+            and config.span_pipeline is not None
+            and self._span_pipeline is not None
+        ):
+            return self._span_pipeline.name
+        return self._provider.name
 
     async def _resolve_config(self, request: ExtractRequest) -> PreparedNERConfig:
         if request.config_id is not None:
@@ -194,11 +268,17 @@ class NerService:
         return config
 
     def _cache_key(self, prepared: PreparedNERConfig, system_prompt: str) -> str:
-        payload = {
+        config = prepared.config
+        payload: dict[str, Any] = {
             "provider": self._provider.name,
-            "config": prepared.config.model_dump(mode="json"),
+            "config": config.model_dump(mode="json"),
             "prompt": system_prompt,
         }
+        if config.span_pipeline is not None:
+            pipeline_name = (
+                self._span_pipeline.name if self._span_pipeline is not None else "unavailable"
+            )
+            payload["pipeline"] = f"{pipeline_name}:{CANDIDATE_GENERATOR_VERSION}"
         return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
     def _apply_runtime_defaults(self, config: NERConfig) -> NERConfig:
@@ -218,17 +298,33 @@ class NerService:
             self._validate_config_id(request.config_id)
 
     def _validate_config(self, config: NERConfig) -> None:
-        if self._limits.allowed_models and config.model not in self._limits.allowed_models:
-            raise ValueError("model is not in ALLOWED_MODELS")
-        if config.retries > self._limits.max_attempts:
-            raise ValueError(f"retries must be <= {self._limits.max_attempts}")
-        if config.max_tokens > self._limits.max_output_tokens:
-            raise ValueError(f"max_tokens must be <= {self._limits.max_output_tokens}")
-        if len(config.few_shot_examples) > self._limits.max_few_shot_examples:
-            raise ValueError("too many few-shot examples")
-        for example in config.few_shot_examples:
-            if len(example.text) > self._limits.max_text_length:
-                raise ValueError("few-shot text exceeds configured limit")
+        policy = config.span_pipeline
+        if policy is not None:
+            if policy.max_candidates > self._limits.max_span_candidates:
+                raise ValueError("span pipeline max_candidates exceeds the operator limit")
+            if policy.max_candidates_per_request > self._limits.max_span_candidates_per_request:
+                raise ValueError(
+                    "span pipeline max_candidates_per_request exceeds the operator limit"
+                )
+        else:
+            if self._limits.allowed_models and config.model not in self._limits.allowed_models:
+                raise ValueError("model is not in ALLOWED_MODELS")
+            if config.retries > self._limits.max_attempts:
+                raise ValueError(f"retries must be <= {self._limits.max_attempts}")
+            if config.max_tokens > self._limits.max_output_tokens:
+                raise ValueError(f"max_tokens must be <= {self._limits.max_output_tokens}")
+            if len(config.few_shot_examples) > self._limits.max_few_shot_examples:
+                raise ValueError("too many few-shot examples")
+            for example in config.few_shot_examples:
+                if len(example.text) > self._limits.max_text_length:
+                    raise ValueError("few-shot text exceeds configured limit")
+            if (
+                config.system_prompt is not None
+                and len(config.system_prompt) > self._limits.max_system_prompt_length
+            ):
+                raise ValueError(
+                    f"system_prompt length must be <= {self._limits.max_system_prompt_length}"
+                )
         if len(config.labels) > self._limits.max_labels:
             raise ValueError(f"labels length must be <= {self._limits.max_labels}")
         for label in config.labels:
@@ -237,13 +333,6 @@ class NerService:
                     "label description length must be "
                     f"<= {self._limits.max_label_description_length}"
                 )
-        if (
-            config.system_prompt is not None
-            and len(config.system_prompt) > self._limits.max_system_prompt_length
-        ):
-            raise ValueError(
-                f"system_prompt length must be <= {self._limits.max_system_prompt_length}"
-            )
 
     def _validate_config_id(self, config_id: str) -> None:
         if len(config_id) > self._limits.max_config_id_length:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -44,6 +44,22 @@ def _runtime_defaults_schema(schema: dict[str, Any]) -> None:
         schema["properties"][name].pop("default", None)
 
 
+class SpanPipelinePolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    model: str = Field(default="jev-1.13.0", min_length=1, max_length=128)
+    prefilter: Literal["auto", "capitalized", "name_like"] = "auto"
+    min_label_probability: float = Field(default=0.6, ge=0.0, le=1.0)
+    max_candidates: int = Field(default=256, ge=1, le=2048)
+    max_candidates_per_request: int = Field(default=30, ge=1, le=256)
+    window_words: int = Field(default=2, ge=0, le=20)
+    cascade: bool = False
+    cascade_low: float = Field(default=0.4, ge=0.0, le=1.0)
+    cascade_high: float = Field(default=0.6, ge=0.0, le=1.0)
+    cascade_window_words: int = Field(default=5, ge=0, le=20)
+    on_unavailable: Literal["fail", "degrade"] = "fail"
+
+
 class NERConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", json_schema_extra=_runtime_defaults_schema)
 
@@ -57,6 +73,7 @@ class NERConfig(BaseModel):
     reasoning_effort: str | None = None
     system_prompt: str | None = Field(default=None, min_length=1)
     few_shot_examples: list[FewShotExample] = Field(default_factory=list)
+    span_pipeline: SpanPipelinePolicy | None = None
 
     @model_validator(mode="after")
     def _unique_label_names(self) -> NERConfig:
@@ -82,6 +99,7 @@ class NERConfigPatch(BaseModel):
     reasoning_effort: str | None = None
     system_prompt: str | None = Field(default=None, min_length=1)
     few_shot_examples: list[FewShotExample] | None = None
+    span_pipeline: SpanPipelinePolicy | None = None
 
     @model_validator(mode="after")
     def _unique_label_names(self) -> NERConfigPatch:

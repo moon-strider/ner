@@ -69,6 +69,45 @@ Otherwise a UUID is generated. Every response receives an ID, including errors.
 These rules ground the returned surfaces; they do not validate the semantic labels.
 Nested and overlapping NER spans are not supported in offset mode.
 
+## Span pipeline mode
+
+A configuration may set `span_pipeline` to judge candidate mentions with a TypeSafe
+`Jev` model instead of the configured chat-completion provider. Candidates are generated
+deterministically from the input text, and the judgment model assigns one of the
+configured labels to each candidate. The request and response envelopes keep their shape.
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `model` | `jev-1.13.0` | TypeSafe judgment model id |
+| `prefilter` | `auto` | Candidate generator: `capitalized`, `name_like`, or `auto` (choose by text) |
+| `min_label_probability` | `0.6` | Judged probability required to accept a label |
+| `max_candidates` | `256` | Candidate cap per request; hitting it adds a warning |
+| `max_candidates_per_request` | `30` | Candidates judged per TypeSafe call |
+| `window_words` | `2` | Context words sent around each candidate mention |
+| `cascade` | `false` | Re-ask candidates whose probability is inside the uncertain band |
+| `cascade_low` | `0.4` | Lower bound of the uncertain band |
+| `cascade_high` | `0.6` | Upper bound of the uncertain band |
+| `cascade_window_words` | `5` | Context words for the cascaded re-ask |
+| `on_unavailable` | `fail` | `fail` returns the provider error; `degrade` returns no entities plus a warning |
+
+The mode differs from the default extraction path in these ways:
+
+- **Offsets are always populated.** The candidate generator owns each span, so `start`
+  and `end` are filled even when `require_offsets` is false, and `text[start:end]`
+  always equals `entity.text`.
+- **Repeated mentions are not collapsed.** Every accepted occurrence is returned as its
+  own entity, even when the same `(text, label)` pair appears several times in the input.
+- **Nested and overlapping spans are still unsupported.** A candidate that intersects an
+  already accepted entity is dropped, as in offset mode.
+- **`model` and `provider` describe the judge.** The response reports `provider` as the
+  span pipeline (`typesafe`) and `model` as the judgment model; neither names the
+  chat-completion model.
+
+`min_label_probability`, `cascade_low`, `cascade_high`, `max_candidates`, and
+`max_candidates_per_request` are operator policy, not a calibrated accuracy budget. A
+judged probability is not the probability that the label is correct, and moving the
+threshold or the caps trades recall against precision.
+
 ## Configurations
 
 `POST /v1/configs` accepts the same object as inline `config` and returns `{id, config}`.
@@ -87,10 +126,12 @@ Read/list/replace/patch/delete use `/v1/configs` and `/v1/configs/{id}`.
 | `reasoning_effort` | `null`; passed to providers that support it |
 | `system_prompt` | `null`; use the default extraction prompt |
 | `few_shot_examples` | `[]` |
+| `span_pipeline` | `null` (disabled); object configures the TypeSafe span pipeline above |
 
-PATCH distinguishes omission from `null`. Use `null` to clear `system_prompt` or
-`reasoning_effort`; non-nullable fields reject explicit nulls. PATCH updates are
-serialized within one service process. Multi-process concurrent edits are last-writer-wins.
+PATCH distinguishes omission from `null`. Use `null` to clear `system_prompt`,
+`reasoning_effort`, or `span_pipeline`; non-nullable fields reject explicit nulls.
+PATCH updates are serialized within one service process. Multi-process concurrent
+edits are last-writer-wins.
 The config list is unpaginated and intended for a small set of shared configurations.
 
 ## Templates and examples

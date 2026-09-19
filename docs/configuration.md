@@ -71,6 +71,13 @@ Defaults below are the application defaults, before `.env` overrides.
 | `MAX_ATTEMPTS` | `10` | Maximum accepted `config.retries` |
 | `MAX_OUTPUT_TOKENS` | `16384` | Maximum accepted output token budget |
 | `MAX_FEW_SHOT_EXAMPLES` | `20` | Maximum examples per configuration |
+| `TYPESAFE_API_KEY` | Unset | TypeSafe credential for the span pipeline; must be nonempty when set |
+| `TYPESAFE_BASE_URL` | `https://api.typesafe.ai` | TypeSafe API base URL, trusted administrator configuration |
+| `TYPESAFE_MODEL` | `jev-1.13.0` | TypeSafe model id used for span judgments |
+| `TYPESAFE_TIMEOUT_S` | `10` | TypeSafe HTTP timeout per call in seconds |
+| `TYPESAFE_MAX_CONNECTIONS` | `16` | TypeSafe connection pool size per process |
+| `MAX_SPAN_CANDIDATES` | `256` | Operator cap on `span_pipeline.max_candidates` |
+| `MAX_SPAN_CANDIDATES_PER_REQUEST` | `30` | Operator cap on `span_pipeline.max_candidates_per_request` |
 | `CONFIG_DB_PATH` | `configs.db` | SQLite path; parent directory must exist and be writable |
 | `CACHE_ENABLED` | `true` | Enable in-process extraction result cache |
 | `CACHE_TTL_SECONDS` | `600` | Result TTL |
@@ -85,6 +92,21 @@ The API additionally caps batches at 100 items, label names at 64 characters,
 model IDs at 128 characters, and raw model entities at 2048. Stored configurations
 are revalidated against current limits when used. Save a new config to adopt a
 changed default model; existing records preserve their resolved settings.
+
+## Span pipeline
+
+The `span_pipeline` mode is off by default. It is enabled per request by a stored
+or inline configuration that carries a `span_pipeline` policy, and it requires
+`TYPESAFE_API_KEY`; without a key the mode stays disabled. In this mode the service
+generates span candidates locally and asks TypeSafe for a typed judgment per
+candidate, so `TYPESAFE_BASE_URL`, `TYPESAFE_MODEL`, `TYPESAFE_TIMEOUT_S` and
+`TYPESAFE_MAX_CONNECTIONS` are ordinary provider settings.
+
+The acceptance threshold `span_pipeline.min_label_probability` and the candidate
+caps `span_pipeline.max_candidates` / `span_pipeline.max_candidates_per_request`
+are operator-owned. Request configurations may lower them but can never raise them
+above the operator caps `MAX_SPAN_CANDIDATES` (`256`) and
+`MAX_SPAN_CANDIDATES_PER_REQUEST` (`30`).
 
 ```dotenv
 ALLOWED_MODELS=["smollm2-1.7b"]

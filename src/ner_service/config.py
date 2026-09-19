@@ -4,7 +4,7 @@ import json
 import math
 from dataclasses import dataclass
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +20,8 @@ class RuntimeLimits:
     max_output_tokens: int = 16_384
     max_few_shot_examples: int = 20
     max_rendered_prompt_length: int = 100_000
+    max_span_candidates: int = 256
+    max_span_candidates_per_request: int = 30
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,11 @@ class Settings(BaseSettings):
     transport_retries: int = Field(default=2, ge=0)
 
     cerebras_api_key: SecretStr | None = None
+    typesafe_api_key: SecretStr | None = None
+    typesafe_base_url: str = "https://api.typesafe.ai"
+    typesafe_model: str = "jev-1.13.0"
+    typesafe_timeout_s: float = Field(default=10.0, gt=0.0)
+    typesafe_max_connections: int = Field(default=16, gt=0)
     openai_api_key: SecretStr | None = None
     openrouter_api_key: SecretStr | None = None
     vllm_api_key: SecretStr = SecretStr("not-needed")
@@ -70,6 +77,8 @@ class Settings(BaseSettings):
     max_output_tokens: int = Field(default=16_384, gt=0)
     max_few_shot_examples: int = Field(default=20, ge=0)
     max_rendered_prompt_length: int = Field(default=100_000, gt=0)
+    max_span_candidates: int = Field(default=256, gt=0)
+    max_span_candidates_per_request: int = Field(default=30, gt=0)
     max_request_body_bytes: int = Field(default=2_000_000, gt=0)
     ner_api_key: SecretStr | None = None
     config_db_path: str = Field(default="configs.db", min_length=1)
@@ -82,11 +91,12 @@ class Settings(BaseSettings):
     batch_concurrency: int = Field(default=10, gt=0)
     token_pricing_json: str | None = None
 
-    @field_validator("ner_api_key")
+    @field_validator("ner_api_key", "typesafe_api_key")
     @classmethod
-    def _nonempty_api_key(cls, value: SecretStr | None) -> SecretStr | None:
+    def _nonempty_api_key(cls, value: SecretStr | None, info: ValidationInfo) -> SecretStr | None:
         if value is not None and not value.get_secret_value().strip():
-            raise ValueError("NER_API_KEY must be nonempty when set")
+            name = info.field_name or "api_key"
+            raise ValueError(f"{name.upper()} must be nonempty when set")
         return value
 
     def runtime_limits(self) -> RuntimeLimits:
@@ -101,6 +111,8 @@ class Settings(BaseSettings):
             max_output_tokens=self.max_output_tokens,
             max_few_shot_examples=self.max_few_shot_examples,
             max_rendered_prompt_length=self.max_rendered_prompt_length,
+            max_span_candidates=self.max_span_candidates,
+            max_span_candidates_per_request=self.max_span_candidates_per_request,
         )
 
     def token_pricing(self) -> dict[str, TokenPricing]:

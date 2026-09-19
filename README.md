@@ -40,6 +40,23 @@ Example entity output (illustrative; recognition depends on the model):
 This is an LLM extraction service. JSON Schema constrains the response shape;
 it does not guarantee that a label or entity is semantically correct.
 
+## Optional TypeSafe span mode
+
+Off by default, the service can judge entity spans with a TypeSafe `Jev` model instead of
+the configured chat-completion provider. Set `TYPESAFE_API_KEY` and add `span_pipeline`
+to a configuration: candidate mentions are generated from the text, and the judge assigns
+one of your labels to each. Enable it when a small typed judgment is cheaper and more
+stable than free-form generation, and when you want every mention kept separately with
+exact offsets. Leave it unset to keep the default provider path, including the local
+keyless setup.
+
+The mode adds a second data egress. When it is on, the input text and candidate windows,
+the configured label catalog (names and descriptions), and the judgment criteria and
+instructions are sent to TypeSafe, by default `https://api.typesafe.ai`, using
+`TYPESAFE_API_KEY`. The default provider path and the local keyless quick start do not
+contact TypeSafe. See [configuration](docs/configuration.md) for the environment
+variables and the [API contract](docs/api.md) for field defaults and semantics.
+
 ## Try it locally
 
 Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/getting-started/installation/),
