@@ -82,7 +82,7 @@ def test_extract_returns_success_envelope_with_request_id() -> None:
     assert response.headers["x-request-id"] == "req-1"
     payload = response.json()
     assert payload["data"]["entities"] == [{"text": "Tim Cook", "label": "PERSON"}]
-    assert payload["data"]["model"] == "llama3.1-8b"
+    assert payload["data"]["model"] == "gpt-oss-120b"
     assert payload["data"]["provider"] == "fake"
     assert payload["data"]["usage"] == {"total_tokens": 11}
     assert payload["meta"]["request_id"] == "req-1"

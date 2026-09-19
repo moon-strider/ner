@@ -37,7 +37,9 @@ class Settings(BaseSettings):
     )
 
     ner_provider: str = Field(default="cerebras")
-    ner_model: str = Field(default="llama3.1-8b")
+    # Provider catalogs change: verify the model id against GET /v1/models before
+    # relying on this default.
+    ner_model: str = Field(default="gpt-oss-120b")
     allowed_models: list[str] = Field(default_factory=list)
     request_timeout_s: float = Field(default=30.0, gt=0.0)
     transport_retries: int = Field(default=2, ge=0)

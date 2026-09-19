@@ -4,7 +4,8 @@ Settings are read from environment variables and `.env` (environment wins).
 Unknown environment variables are ignored. Unknown fields in API requests are rejected.
 Restart the service after changing environment settings.
 
-The application defaults remain Cerebras + `llama3.1-8b` for compatibility.
+The application defaults are Cerebras + `gpt-oss-120b`.
+Provider catalogs change: verify the model id against `GET /v1/models` before relying on the default.
 The checked-in `.env.example` overrides them for the local CPU quick start.
 Select an actual model available to your cloud account; no cloud model availability
 or quality is implied by the historical application default.
@@ -50,7 +51,7 @@ Defaults below are the application defaults, before `.env` overrides.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `NER_PROVIDER` | `cerebras` | Provider identifier |
-| `NER_MODEL` | `llama3.1-8b` | Default model when omitted by a request |
+| `NER_MODEL` | `gpt-oss-120b` | Default model when omitted by a request. Verify availability with `GET /v1/models` |
 | `ALLOWED_MODELS` | `[]` | Optional JSON list of allowed model IDs; empty allows any |
 | `NER_API_KEY` | Unset | Optional service Bearer token; must be nonempty when set |
 | `REQUEST_TIMEOUT_S` | `30` | HTTPX upstream per-operation timeout, not a whole-request deadline |

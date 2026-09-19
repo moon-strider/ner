@@ -15,7 +15,7 @@ def _config() -> NERConfig:
 
 def test_accepts_valid_config_defaults() -> None:
     cfg = _config()
-    assert cfg.model == "llama3.1-8b"
+    assert cfg.model == "gpt-oss-120b"
     assert cfg.require_offsets is False
     assert cfg.case_sensitive is True
     assert cfg.retries == 3

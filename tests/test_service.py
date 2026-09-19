@@ -166,7 +166,7 @@ async def test_prompt_template_renders_cfg_schema_and_payload() -> None:
 
     prompt = provider.calls[0]["system_prompt"]
     assert '"entities"' in prompt
-    assert "model=llama3.1-8b" in prompt
+    assert "model=gpt-oss-120b" in prompt
     assert "n=7" in prompt
     assert "{ok}" in prompt
 
@@ -239,7 +239,7 @@ async def test_estimated_cost_metric_is_exposed() -> None:
     provider.entities = [RawEntity(text="Tim Cook", label="PERSON")]
     service = NerService(
         provider,
-        token_pricing={"llama3.1-8b": TokenPricing(input_per_million=1.0, output_per_million=2.0)},
+        token_pricing={"gpt-oss-120b": TokenPricing(input_per_million=1.0, output_per_million=2.0)},
     )
 
     await service.extract(ExtractRequest(text="Tim Cook", config=_config()))

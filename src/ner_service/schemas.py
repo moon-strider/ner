@@ -48,7 +48,8 @@ class NERConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", json_schema_extra=_runtime_defaults_schema)
 
     labels: list[EntityLabel] = Field(..., min_length=1)
-    model: str = Field(default="llama3.1-8b", min_length=1, max_length=128)
+    # Mirrors Settings.ner_model: verify against GET /v1/models, catalogs change.
+    model: str = Field(default="gpt-oss-120b", min_length=1, max_length=128)
     require_offsets: bool = False
     case_sensitive: bool = True
     retries: int = Field(default=3, ge=1)

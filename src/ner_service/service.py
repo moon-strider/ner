@@ -32,7 +32,7 @@ class NerService:
         self,
         provider: NerProvider,
         *,
-        default_model: str = "llama3.1-8b",
+        default_model: str = "gpt-oss-120b",
         max_tokens: int = 1024,
         limits: RuntimeLimits | None = None,
         cache: ResultCache | None = None,
