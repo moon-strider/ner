@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from ner_service.candidates import (
-    CANDIDATE_GENERATOR_VERSION,
     Candidate,
     choose_prefilter,
     generate_candidates,
@@ -186,7 +185,3 @@ class JevSpanPipeline:
 
     async def aclose(self) -> None:
         await self._client.aclose()
-
-
-def generator_version() -> int:
-    return CANDIDATE_GENERATOR_VERSION
