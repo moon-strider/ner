@@ -127,10 +127,10 @@ class JevSpanPipeline:
                 model=model,
             )
         entities = _select(accepted)
-        considered = len(accepted)
         if candidates:
             warnings.append(
-                f"Span pipeline judged {len(candidates)} candidates and accepted {considered}."
+                f"Span pipeline judged {len(candidates)} candidates, accepted "
+                f"{len(accepted)}, returned {len(entities)}."
             )
         if no_judgment:
             warnings.append(f"{no_judgment} candidates received no judgment.")
