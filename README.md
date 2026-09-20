@@ -40,22 +40,24 @@ Example entity output (illustrative; recognition depends on the model):
 This is an LLM extraction service. JSON Schema constrains the response shape;
 it does not guarantee that a label or entity is semantically correct.
 
-## Optional TypeSafe span mode
+## Jev
 
-Off by default, the service can judge entity spans with a TypeSafe `Jev` model instead of
-the configured chat-completion provider. Set `TYPESAFE_API_KEY` and add `span_pipeline`
-to a configuration: candidate mentions are generated from the text, and the judge assigns
-one of your labels to each. Enable it when a small typed judgment is cheaper and more
-stable than free-form generation, and when you want every mention kept separately with
-exact offsets. Leave it unset to keep the default provider path, including the local
-keyless setup.
+Jev is a model from TypeSafe that answers a fixed question instead of writing text. In this
+mode the service stops asking a chat model to produce entities: simple code picks candidate
+mentions out of the text, and Jev decides which of your labels each one gets.
 
-The mode adds a second data egress. When it is on, the input text and candidate windows,
-the configured label catalog (names and descriptions), and the judgment criteria and
-instructions are sent to TypeSafe, by default `https://api.typesafe.ai`, using
-`TYPESAFE_API_KEY`. The default provider path and the local keyless quick start do not
-contact TypeSafe. See [configuration](docs/configuration.md) for the environment
-variables and the [API contract](docs/api.md) for field defaults and semantics.
+Set `TYPESAFE_API_KEY` and add `span_pipeline` to a request or a stored config. Leave it unset
+and nothing changes — the default provider path, including the local keyless setup, stays as it
+is.
+
+The mode adds a second service to the data flow. While it is on, the input text, the candidate
+windows, your label names and descriptions, and the question wording go to TypeSafe
+(`https://api.typesafe.ai` by default) under `TYPESAFE_API_KEY`. The default path and the local
+quick start never contact it.
+
+What I measured, where it breaks and when it is worth turning on is in [Jev](docs/jev.md).
+Config fields are in the [API contract](docs/api.md); environment variables are in
+[configuration](docs/configuration.md).
 
 ## Try it locally
 
@@ -145,6 +147,7 @@ server reachable from the Docker bridge. See [operations](docs/operations.md).
 | --- | --- |
 | [API](docs/api.md) | Requests, responses, errors, and matching semantics |
 | [Configuration](docs/configuration.md) | Providers and environment variables |
+| [Jev](docs/jev.md) | What the judgment model measures, where it breaks, and when to use it |
 | [Operations](docs/operations.md) | Docker, persistence, access control, metrics, tracing |
 | [Local inference](docs/local-inference.md) | CPU setup and reproducible smoke testing |
 | [Development](CONTRIBUTING.md) | Tests, client generation, packaging |

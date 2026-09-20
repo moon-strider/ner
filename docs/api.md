@@ -143,7 +143,7 @@ flags are not supported. Braces inside label descriptions are literal with the d
 
 ```json
 {
-  "text": "We visited Paris.",
+  "text": "I visited Paris.",
   "config": {
     "labels": [{"name": "LOCATION", "description": "Cities"}],
     "system_prompt": "Extract cities using {cfg.schema}. Context: {payload.context}",
